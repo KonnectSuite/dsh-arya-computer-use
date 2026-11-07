@@ -66,7 +66,7 @@ const fields = {
   cursorIndicatorEnabled: z.boolean().default(true).description('Show a ghost cursor where the agent acts'),
   remoteIndicatorVisible: z.boolean().default(true).description('Visible in remote sessions and recordings'),
   indicatorText: z.string().default(DEFAULT_SETTINGS.indicatorText).description('Banner text'),
-  pointerLabel: z.string().default(DEFAULT_SETTINGS.pointerLabel).description('Tag shown next to the ghost cursor'),
+  pointerLabel: z.string().default(DEFAULT_SETTINGS.pointerLabel).description('Agent name used by the ghost cursor tag and the progress panel header'),
   indicatorPosition: z.union([z.const('top'), z.const('bottom')]).default('top').description('Banner position'),
   indicatorIdleMs: z.number().min(200).max(3000).default(800).description('Hide delay after the turn (ms)'),
   stopShortcut: z.string().pattern(STOP_SHORTCUT_PATTERN).default('').description('Custom stop shortcut'),

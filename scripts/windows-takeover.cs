@@ -308,7 +308,7 @@ namespace DshTakeover {
           ConfigureVisibility(Get(command,"remoteIndicatorVisible",true));
           cursorIndicator = Get(command, "cursorIndicatorEnabled", true);
           ApplyPointerLabel(Get(command, "pointerLabel", pointerLabel));
-          string nextText = Get(command, "indicatorText", "DSH is controlling your computer"), nextPosition = Get(command, "indicatorPosition", "top");
+          string nextText = Get(command, "indicatorText", "Arya is controlling your computer"), nextPosition = Get(command, "indicatorPosition", "top");
           bool rebuild = nextIndicator != indicator || nextText != text || nextPosition != position || frames.Count == 0;
           indicator = nextIndicator; text = nextText; position = nextPosition;
           idleMs = Math.Max(200, Math.Min(3000, Get(command, "indicatorIdleMs", 800)));
@@ -539,7 +539,7 @@ namespace DshTakeover {
       next = next.Trim();
       if (next.Length > 16) next = next.Substring(0, 16);
       if (next == pointerLabel) return;
-      pointerLabel = next; PointerFrame.Label = next; HidePointer();
+      pointerLabel = next; PointerFrame.Label = next; ProgressFrame.Agent = next; HidePointer();
     }
     void CloseProgress() {
       progressCloseWhenIdle=false;
@@ -579,6 +579,8 @@ namespace DshTakeover {
   // Per-pixel composition: the background can be translucent without fading text.
   // One physical-resolution surface also avoids opaque system scrollbars and DPI stretching.
   internal sealed class ProgressFrame : Form {
+    // Name shown in the panel header; follows the configurable agent name.
+    internal static string Agent = "Arya";
     sealed class ReadingLine { internal string text; internal bool heading; internal ReadingLine(string s,bool h){text=s;heading=h;} }
     readonly List<ReadingLine> lines=new List<ReadingLine>();
     internal string Content="";
@@ -797,8 +799,8 @@ namespace DshTakeover {
       long started=Whole(data,"startedAt"),ended=Whole(data,"endedAt");
       bool finished=ended>0&&(status=="done"||status=="failed"||status=="stopped");
       string took=started>0&&ended>=started?" · "+Math.Max(1,(long)Math.Round((ended-started)/1000.0))+"s":"";
-      if(finished)header=status=="done"?"DSH · Done · "+step+" steps"+took:status=="failed"?"DSH · Error · step "+step:"DSH · Stopped · step "+step;
-      else header="DSH · Step "+step+" · "+(status=="thinking"?"thinking":status=="acting"?"acting":status=="replying"?"replying":status=="stopped"?"stopped":"working");
+      if(finished)header=status=="done"?Agent+" · Done · "+step+" steps"+took:status=="failed"?Agent+" · Error · step "+step:Agent+" · Stopped · step "+step;
+      else header=Agent+" · Step "+step+" · "+(status=="thinking"?"thinking":status=="acting"?"acting":status=="replying"?"replying":status=="stopped"?"stopped":"working");
       string action=TextValue(data,"action");if(action=="")action=ToolLabel(TextValue(data,"tool"));
       subheader=finished?"":action;
       var steps=Items(data,"steps");var text=new List<string>();var heads=new List<string>();
@@ -829,7 +831,7 @@ namespace DshTakeover {
         if(reasoning!=""){head("Thinking");text.Add(reasoning);}
         if(reply!=""){head("Reply");text.Add(reply);}
       }
-      bodyText=text.Count>0?String.Join("\n",text.ToArray()):"Waiting for DSH output…";headings=heads.ToArray();
+      bodyText=text.Count>0?String.Join("\n",text.ToArray()):"Waiting for "+Agent+" output…";headings=heads.ToArray();
       Content=header+"\n"+subheader+"\n\n"+bodyText;LayoutBody();RevealResult(finished);Present();
     }
     static string ToolLabel(string tool){switch(tool){case "snapshot":return "read the screen";case "screenshot":return "screenshot";case "list_windows":return "list windows";case "launch":return "open an app";case "scroll":return "scroll";case "click":return "click";case "set_value":return "set a value";case "type":return "type text";case "press":return "press keys";case "wait":return "wait";case "batch":return "run a batch";case "find":return "find a control";case "get":return "read a control";case "is":return "check a control";case "ocr":return "read screen text";default:return tool;}}
