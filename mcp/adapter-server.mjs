@@ -291,7 +291,7 @@ async function callTool(name, args = {}) {
           break;
         }
         const out = await callTool(action, step?.arguments || {});
-        const envelope = out.structuredContent ?? { ok: false };
+        const envelope = out.structuredContent ?? out;
         results.push({ action, ok: envelope.ok === true, summary: summarizeEnvelope(envelope) });
         if (envelope.ok !== true && args.stop_on_error !== false) break;
       }
@@ -451,7 +451,7 @@ rl.on('line', (line) => {
     const args = params?.arguments ?? {};
     Promise.resolve()
       .then(() => callTool(name, args))
-      .then((out) => reply(id, out))
+      .then((out) => reply(id, Array.isArray(out?.content) ? out : envelopeResult(out)))
       .catch((error) => reply(id, { content: [{ type: 'text', text: `adapter error: ${error?.message || error}` }], isError: true }));
     return;
   }
