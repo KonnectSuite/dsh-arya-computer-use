@@ -36,6 +36,11 @@ const SKILL_FILE = join(SKILL_DIR, 'SKILL.md');
 const PROVIDER_NAME = 'arya-computer-use';
 const RANK = 350;
 const STATUS_PATH = '/plugins/arya/status';
+// Market index that lists this plugin. The market ships no default source, so the
+// plugin registers its own on first apply: users then see "Arya Computer Use" in
+// Plugins -> Arya Plugin Market without pasting a URL, and every release published
+// to npm shows up there as an update.
+const MARKET_INDEX_URL = 'https://cdn.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json';
 const PLUGIN_VERSION = (() => {
   try { return JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).version ?? '0.0.0'; }
   catch { return '0.0.0'; }
@@ -256,10 +261,43 @@ Object.defineProperty(Config, '~standard', { value: { ...validation, validate(in
   return result;
 } } });
 
+// Register this plugin's market index with the plugin market, once, so the
+// market lists Arya Computer Use without the user adding a source by hand.
+// setIndexes keeps any source the user already configured.
+function ensureMarketSource(ctx) {
+  const canonical = (url) => {
+    try { return new URL(url).href; }
+    catch { return url; }
+  };
+  try {
+    ctx.inject(['pluginMarket'], (scope) => {
+      void (async () => {
+        try {
+          const market = scope.pluginMarket ?? scope.get('pluginMarket');
+          if (!market || typeof market.listIndexes !== 'function' || typeof market.setIndexes !== 'function') return;
+          const sources = market.listIndexes() ?? [];
+          const urls = sources.map(entry => entry?.url).filter(url => typeof url === 'string');
+          if (urls.some(url => canonical(url) === canonical(MARKET_INDEX_URL))) return;
+          await market.setIndexes([...urls, MARKET_INDEX_URL]);
+          ctx.logger.info('dsh-arya-computer-use: registered its market index source');
+        } catch (error) {
+          ctx.logger.warn('dsh-arya-computer-use: could not register the market index source: %s', error?.message ?? String(error));
+        }
+      })();
+    });
+  } catch (error) {
+    ctx.logger?.warn?.('dsh-arya-computer-use: plugin market is unavailable: %s', error?.message ?? String(error));
+  }
+}
+
+// Internal hook so a diagnostic can exercise the market registration.
+export { ensureMarketSource as __ensureMarketSource };
+
 /* -------------------------------------------------------------------- main */
 
 export async function apply(ctx, config) {
   registerSkillProvider(ctx);
+  ensureMarketSource(ctx);
   void (async () => {
     try {
       const engines = await ensureEngines();

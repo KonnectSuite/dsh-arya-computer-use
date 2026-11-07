@@ -97,6 +97,17 @@ node mcp/browser-launcher.mjs          # → agent-browser mcp --tools core [--p
 
 So sign-in reuse and attaching to your own Chrome are settings, not hand-edited rows. Web-lane changes land on the next MCP restart; the settings page says so.
 
+## Plugin market
+
+Installing from Plugins -> Arya Plugin Market needs no manual source: on first run the plugin registers
+`https://cdn.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json`
+with the market (existing sources are kept) and every npm release shows up there as an update. Releases go
+through npm staged publishing, so a publish is visible in the market once the version is approved on npmjs.com.
+
+The plugin manager blocks dependency build scripts by default. The engines (`agent-desktop`, `agent-browser`)
+fetch their native binary in a postinstall script; approve those two builds when installing, or let 1.0.1+
+repair them itself at start-up - the status route reports the outcome under `mcp.engines`.
+
 ## Tool presets
 
 - `lite` (default) — all 16 desktop tools listed up front.
