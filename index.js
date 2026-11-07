@@ -18,8 +18,10 @@
 
 import z from '@deepseek-ai/schemastery';
 import os from 'node:os';
-import { readFile, readFileSync, readdirSync } from 'node:fs';
+import { readFile, readFileSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DEFAULT_SETTINGS, normalizeSettings, STOP_SHORTCUT_PATTERN, repairStaleSettings } from './mcp/settings.mjs';
 import { TakeoverControl, atomicJson } from './mcp/takeover.mjs';
@@ -83,6 +85,68 @@ async function loadMcpBridge() {
   }
   return { bridge: null, resolveErrors };
 }
+
+// ---------------------------------------------------------------------------
+// Engine binaries.
+//
+// agent-desktop and agent-browser ship their native binary through a
+// postinstall script. pnpm (and therefore the plugin manager) refuses to run
+// dependency build scripts unless they are approved, so a market install can
+// leave both engines without a binary. Rather than fail with an opaque spawn
+// error much later, run the vendor's own postinstall once, ourselves, and
+// report what happened in the status route.
+// ---------------------------------------------------------------------------
+
+const ENGINE_PACKAGES = ['agent-desktop', 'agent-browser'];
+
+function engineRoot(pkg) {
+  try {
+    return dirname(createRequire(import.meta.url).resolve(`${pkg}/package.json`));
+  } catch {
+    return null;
+  }
+}
+
+function engineBinaryReady(root) {
+  const binDir = join(root, 'bin');
+  const token = `${process.platform}-${process.arch}`;
+  const wantSuffix = process.platform === 'win32' ? '.exe' : '';
+  try {
+    return readdirSync(binDir).some(name => {
+      if (name.endsWith('.sha256') || !name.includes(token)) return false;
+      return name.slice(name.indexOf(token) + token.length) === wantSuffix;
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function ensureEngine(pkg) {
+  const root = engineRoot(pkg);
+  if (!root) return { package: pkg, ok: false, reason: 'not-installed' };
+  if (engineBinaryReady(root)) return { package: pkg, ok: true, binary: 'present' };
+  const script = join(root, 'scripts', 'postinstall.js');
+  try {
+    if (!statSync(script).isFile()) return { package: pkg, ok: false, reason: 'no-postinstall' };
+  } catch {
+    return { package: pkg, ok: false, reason: 'no-postinstall' };
+  }
+  try {
+    execFileSync(process.execPath, [script], { cwd: root, stdio: 'ignore', timeout: 600000, windowsHide: true });
+  } catch (error) {
+    return { package: pkg, ok: false, reason: 'postinstall-failed', message: error?.message ?? String(error) };
+  }
+  return { package: pkg, ok: engineBinaryReady(root), binary: 'downloaded' };
+}
+
+async function ensureEngines() {
+  const results = [];
+  for (const pkg of ENGINE_PACKAGES) results.push(await ensureEngine(pkg));
+  return results;
+}
+
+// Internal hook so a diagnostic can exercise the repair without a host.
+export { ensureEngines as ensureEngineBinaries };
 
 // One in-process mcp-client per lane. stdio transport with our own files, so
 // the same code path serves a checkout and a registry install.
@@ -196,7 +260,22 @@ Object.defineProperty(Config, '~standard', { value: { ...validation, validate(in
 
 export async function apply(ctx, config) {
   registerSkillProvider(ctx);
-  void mountMcpServers(ctx);
+  void (async () => {
+    try {
+      const engines = await ensureEngines();
+      mcpStatus = { ...mcpStatus, engines };
+      const broken = engines.filter(engine => !engine.ok);
+      if (broken.length) {
+        ctx.logger.warn(
+          'dsh-arya-computer-use: engine binaries are missing: %s (run the vendor postinstall, or approve dependency build scripts in the profile)',
+          broken.map(engine => `${engine.package}${engine.reason ? ` (${engine.reason})` : ''}`).join(', '),
+        );
+      }
+    } catch (error) {
+      ctx.logger.warn('dsh-arya-computer-use: could not prepare engine binaries: %s', error?.message ?? String(error));
+    }
+    await mountMcpServers(ctx);
+  })();
 
   const root = controlDir();
   const runtime = { configFile: join(root, 'settings.json'), stateFile: join(root, 'state.json'), activityFile: join(root, 'activity.json'), layoutFile: join(root, 'overlay-layout.json'), targetFile: join(root, 'target.json') };

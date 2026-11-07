@@ -14,14 +14,24 @@
         "url": "https://github.com/KonnectSuite/dsh-arya-computer-use"
       },
       "metadata": {
-        "keywords": ["computer-use", "accessibility", "uia", "browser", "windows"]
+        "keywords": [
+          "computer-use",
+          "accessibility",
+          "uia",
+          "browser",
+          "windows"
+        ]
       },
       "versions": [
         {
-          "version": "1.0.0",
-          "publishTimestamp": 1794038400,
-          "source": { "type": "npm" },
-          "engines": { "dsh": ">=0.2.1-rc.3 <0.3.0-0" }
+          "version": "1.0.1",
+          "publishTimestamp": 1794051125,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+          }
         }
       ]
     }
