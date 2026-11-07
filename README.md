@@ -18,17 +18,25 @@ Replaces [dsh-computer-use-win](https://github.com/Yu-tao-Li/dsh-computer-use-wi
 - [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) `1.2.0` (Apache-2.0) — accessibility-tree computer use CLI, native Windows binaries on npm. Reference mirror: [KonnectSuite/dsh-arya-agent-desktop](https://github.com/KonnectSuite/dsh-arya-agent-desktop).
 - [`agent-browser`](https://github.com/vercel-labs/agent-browser) `0.41.2` (Apache-2.0) — web lane via CDP (`agent-browser mcp`).
 
+## Requirements
+
+- **DSH host must run elevated (Run as administrator).** The engine's interaction lease lives at `C:\ProgramData\agent-desktop\<user-SID>\interaction.lock` with a protected DACL `{SYSTEM, Administrators, token user}`; a non-elevated medium-IL token fails validation (`lease_directory_untrusted`). The adapter surfaces this as an explicit "run AryaCode as administrator" hint.
+- Accessibility permission (`desktop_status` reports `accessibility: granted`).
+- Engine state root is the engine default `~/.agent-desktop` — do **not** point `AGENT_DESKTOP_HOME` at `%LOCALAPPDATA%` (inherited AppContainer ACEs fail the engine's private-DACL check).
+
 ## Status
 
-**Skeleton (v0.1.0).** Structure and install rows are in place; implementation follows the plan phases:
+**Phase 0 complete (accepted 2026-11-06); Phase 1 adapter built + smoke-tested.**
 
-| Phase | Deliverable |
-| --- | --- |
-| 0 | Evaluation spike: raw `agent-desktop mcp` row, drive Notepad/Explorer/Chrome/VS Code/Obsidian, user acceptance |
-| 1 | Adapter MCP server: Lite 14 tools, per-conversation session injection, headed toggle, screenshot→file path, WinRT OCR, skill |
-| 2 | Takeover UI: edge glow + status bar + Esc kill, cursor overlay lifecycle, settings page, chat step rows, driver lock |
-| 3 | Web lane (`arya_browser` row), sign-in profiles, attach-to-your-Chrome, **wincu retirement** |
-| 4 | Lazy preset, notifications/clipboard/trace, npm publish |
+| Phase | Deliverable | Status |
+| --- | --- | --- |
+| 0 | Evaluation spike: raw `agent-desktop mcp` row, drive Notepad/Explorer/Chrome — speed ✓, readable trees ✓, refs-not-pixels ✓ | ✅ accepted, spike removed |
+| 1 | Adapter MCP server: Lite 16 tools, per-conversation session lifecycle, headed toggle + foreground promotion, screenshot→file path, WinRT OCR, skill | ✅ built, smoke-tested; pending in-host install |
+| 2 | Takeover UI: edge glow + status bar + Esc kill, cursor overlay lifecycle, settings page, chat step rows, driver lock | planned |
+| 3 | Web lane (`arya_browser` row), sign-in profiles, attach-to-your-Chrome, **wincu retirement** | planned |
+| 4 | Lazy preset, notifications/clipboard/trace, npm publish | planned |
+
+Lite 16 tool surface: `snapshot, find, get, is, click, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools` (superset of wincu Lite 12; `type` is auto-headed with click-based foreground promotion; `tools` manages headed/overlay/session state).
 
 Full plan: [docs/PLAN.md](docs/PLAN.md).
 
@@ -48,7 +56,7 @@ docs/PLAN.md          complete v1 plan
 
 ## Install (dev, Phase 1+)
 
-Not published to npm yet (`private: true`). Install from a local checkout with `plugin_manager` → `install_bundle` pointing at this directory. The `mcp-arya-desktop` row uses `npx -y @konnectsuite/dsh-plugin-arya-computer-use@0.1.0`; during development replace its `command`/`args` with `node` + the absolute path to `mcp/adapter-server.mjs` (the Loader `!!js` packageDir form is verified in Phase 1).
+Not published to npm yet (`private: true`). Install from a local checkout with `plugin_manager` → `install_bundle` pointing at this directory. The `mcp-arya-desktop` row is currently in **dev form** (`command: node`, `args: [<absolute path to mcp/adapter-server.mjs>]`); after npm publish replace with `npx -y @konnectsuite/dsh-plugin-arya-computer-use@<version>`. Keep the checkout in place while the dev row is active.
 
 ## License
 

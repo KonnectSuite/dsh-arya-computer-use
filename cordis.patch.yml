@@ -6,17 +6,21 @@
     - id: arya-computer-use
       name: '@konnectsuite/dsh-plugin-arya-computer-use'
       config: {}
+    # DEV row (private:true blocks npx until npm publish): absolute-path node
+    # invocation of the adapter. After publish, replace command/args with
+    #   command: npx / args: ['-y', '@konnectsuite/dsh-plugin-arya-computer-use@<ver>'].
     - id: mcp-arya-desktop
       name: '@deepseek-ai/dsh-mcp-client'
       config:
         serverName: arya_desktop
         transport: stdio
-        command: npx
+        command: node
         args:
-          - '-y'
-          - '@konnectsuite/dsh-plugin-arya-computer-use@0.1.0'
-        env:
-          ARYA_ADAPTER: '1'
+          - 'C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-computer-use\mcp\adapter-server.mjs'
+        # No AGENT_DESKTOP_HOME override: the engine's default ~/.agent-desktop
+        # root carries its own protected DACL. AppData\Local roots fail the
+        # engine's private-file DACL check (inherited AppContainer ACEs).
+        toolCallTimeoutMs: 120000
         failOnStartupError: true
     - id: mcp-arya-browser
       name: '@deepseek-ai/dsh-mcp-client'

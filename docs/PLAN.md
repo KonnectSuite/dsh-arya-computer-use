@@ -110,25 +110,30 @@ Overlay cost: ~355 ms per headless action (click 427→782 ms). Setting default:
 
 ## 8. Phases + acceptance
 
-- **Phase 0 — eval spike (no plugin code, ~1 day)**: temp MCP row `npx -y agent-desktop@1.2.0 mcp` + stub skill. Drive Notepad, Explorer, Chrome, VS Code, Obsidian. Accept: user confirms speed + no pixel misses + Chromium settle handled (`--timeout-ms`). Kill row after.
-- **Phase 1 — adapter server**: Lite 14, session injection, headed toggle, screenshot→file path, OCR helper, tools entry, skill row. Accept: drive Notepad/Explorer headless end-to-end; OCR reads a canvas app; Lite token footprint ≪ wincu All-26.
+- **Phase 0 — eval spike (no plugin code, ~1 day)** — ✅ **DONE 2026-11-06/07**: spike row installed via local bundle (raw CLI path form), full `desktop_*` tool set registered, eval battery passed under elevated host (Notepad 19-ref tree, File menu expand, Explorer 184-ref tree, Chrome 100-ref chrome-UI tree with thin page content confirming the CDP-lane need; snapshot 125 ms). User accepted + confirmed elevated-always. Spike removed. Key finding: elevation is the lease fix.
+- **Phase 1 — adapter server** — 🟡 **BUILT + SMOKE-TESTED 2026-11-07**: Lite 16, per-conversation session lifecycle (env-scoped), headed toggle, foreground promotion via headed click, screenshot→file path, WinRT OCR (verified en-US), batch guard, tools entry, skill provider (REA pattern). Full loop test passed (launch→find→type→ocr→session_end). Remaining: in-host install + drive test. Accept: drive Notepad/Explorer headless end-to-end; OCR reads a canvas app; Lite token footprint ≪ wincu All-26.
 - **Phase 2 — takeover + UI**: Host/Client plugins, settings page, step rows, edge glow/status bar/Esc kill, cursor overlay lifecycle, driver lock. Accept: wincu-parity UX, English throughout, Esc stops everything in <1 s.
 - **Phase 3 — web lane + retirement**: `arya_browser` row, sign-in profiles, attach-to-own-browser (`--cdp`), step-row parity. Accept: same web workflows user runs on wincu today. Then delete wincu row + uninstall.
 - **Phase 4 — polish**: Lazy preset (after verifying `tools/list_changed` re-sync), notifications/clipboard/trace surfaces, npm publish, README + install docs.
 
 ## 9. Risks + mitigations
 
+- **Elevation required (CONFIRMED Phase 0)**: engine interaction lease `C:\ProgramData\agent-desktop\<SID>\interaction.lock` needs protected DACL `{SY, BA, token user}`; medium-IL token fails `lease_directory_untrusted`. Mitigation: plugin requires elevated host (user's normal mode — wincu runs elevated too); adapter appends explicit "run AryaCode as administrator" hint on that error kind.
+- **`AGENT_DESKTOP_HOME` override fails engine private-DACL check** under `%LOCALAPPDATA%` (inherited AppContainer ACEs) → use engine default `~/.agent-desktop`; adapter keeps its own screenshots dir at `%LOCALAPPDATA%\dsh-plugin-arya-desktop\screenshots`.
+- **Windows foreground lock (CONFIRMED Phase 1)**: headed delivery needs the target frontmost; `focus`/`focus-window`/`AppActivate` all fail from a background process. Working recipe: headed `mouse-click --xy` at target bounds center → then headed input. Adapter `ensureForeground()` does this automatically before `type`.
+- **Snapshots are session-scoped**: refs from session X are `SNAPSHOT_NOT_FOUND` in a call without `AGENT_DESKTOP_SESSION` env. Adapter starts a session per conversation and sets the env on every CLI call.
 - WinUI3/MSIX menus "not detected" (native gap) → OCR fallback + headed `mouse-click --xy`; document in skill.
 - Chromium cold trees read 13× thin (Obsidian 12 vs 165 nodes; settle 10–25 s) → skill mandates `--timeout-ms` + re-snapshot; covered Chromium windows hold the shell → fresh observation after waits.
 - npm lifecycle scripts blocked in AryaCode's Node env → 1.0.2 launcher prints notice; verify binary linking in Phase 0; fallback = vendored binary download in postinstall of our package.
 - DSH dynamic tool re-sync (`tools/list_changed`) unverified → Phase 1 spike; fallback = static Lite.
-- Cursor overlay multi-monitor placement unit-tested only → test on user's monitors in Phase 2.
+- Cursor overlay multi-monitor placement unit-tested only → test on user's monitors in Phase 2. `rendered:false` under sandboxed pwsh = renderer unreachable via named pipes (sandbox boundary); expect `true` under unconfined host — verify Phase 2.
 - 56-tool token cost in All preset → Lite default; Lazy when verified.
 - agent-desktop cannot see UIs with no accessibility tree (some games/canvas) → OCR + headed coordinate fallback documented.
+- WinRT OCR needs FullLanguage `powershell.exe` (adapter spawns it directly; sandboxed pwsh is ConstrainedLanguage) + canonical `Await($op, $ResultType)` generic-AsTask pattern (WinRT ops arrive as raw `__ComObject`). Verified working en-US.
 
 ## 10. Open questions (non-blocking)
 
 1. ~~Package name~~ **RESOLVED 2026-11-06**: repo `dsh-arya-computer-use`, npm `@konnectsuite/dsh-plugin-arya-computer-use`; MCP serverNames stay `arya_desktop` / `arya_browser`.
 2. Cursor overlay default ON (visibility) vs OFF (speed)?
-3. Lite list confirmation (14 tools above)?
+3. ~~Lite list confirmation (14 tools above)?~~ **RESOLVED 2026-11-07**: Lite 16 shipped in adapter — `snapshot, find, get, is, click, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools`.
 4. Publish to public npm, or GitHub-install only?
