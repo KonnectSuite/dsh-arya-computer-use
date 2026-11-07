@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
       progressOverlayWidth: 360, progressOverlayHeight: 240, progressOverlayPosition: 'top-right',
       progressOverlayX: 80, progressOverlayY: 80, progressOverlayLocked: true, progressLockShortcut: '',
       progressPreviewToken: 0, indicatorEnabled: true, cursorIndicatorEnabled: true,
-      remoteIndicatorVisible: true, indicatorText: 'DSH is controlling your computer', indicatorPosition: 'top',
+      remoteIndicatorVisible: true, indicatorText: 'Arya is controlling your computer', pointerLabel: 'Arya', indicatorPosition: 'top',
       indicatorIdleMs: 800, stopShortcut: '', resumeToken: 0, previewToken: 0,
       headedDefault: false, overlayDefault: true, driverLockEnabled: true,
     };
@@ -25,6 +25,7 @@ window.__ModuleLoader__.load({
         cursorIndicator: '显示虚拟光标', cursorIndicatorHint: '在 agent 操作的位置画一个虚拟光标。不会跟随或高亮你的真实鼠标。',
         appearance: '提示的更多选项', text: '提示文字', position: '提示位置', top: '顶部', bottom: '底部',
         delay: '操作后保留提示', delayHint: '连续动作保持显示，减少闪烁。200–3000 毫秒。', ms: '毫秒',
+  cursorLabel: '虚拟光标名称', cursorLabelHint: '显示在虚拟光标旁的名字，1–16 个字符。',
         remoteVisible: '远程与录屏可见', remoteVisibleHint: '让远程桌面、屏幕共享和录屏看到接管提示与浮窗。关闭后请求 Windows 把它们排除在捕获之外。',
         preview: '预览接管提示', previewed: '已请求预览；如果之前按 Esc 暂停，请先恢复控制。', previewHint: '请先保存更改，再预览屏幕上的实际效果。',
         progressTitle: '操作浮窗', progressOverlay: '显示操作浮窗', progressOverlayHint: '在屏幕上显示当前步骤、模型的思考与回复。',
@@ -62,6 +63,7 @@ window.__ModuleLoader__.load({
         cursorIndicator: 'Show a ghost cursor', cursorIndicatorHint: 'Draws a synthetic cursor where the agent acts. Your real pointer is never followed or highlighted.',
         appearance: 'More indicator options', text: 'Banner text', position: 'Banner position', top: 'Top', bottom: 'Bottom',
         delay: 'Keep visible after an action', delayHint: 'Stay visible between consecutive actions. 200–3000 milliseconds.', ms: 'ms',
+  cursorLabel: 'Ghost cursor name', cursorLabelHint: 'The tag drawn beside the ghost cursor. 1–16 characters.',
         remoteVisible: 'Visible in remote sessions and recordings', remoteVisibleHint: 'Show the takeover indicator and overlay in remote access, screen sharing and recordings; turning it off asks Windows to exclude them from capture.',
         preview: 'Preview indicator', previewed: 'Preview requested; resume first if you previously stopped with Esc.', previewHint: 'Save changes before previewing the actual screen indicator.',
         progressTitle: 'Progress overlay', progressOverlay: 'Show the progress overlay', progressOverlayHint: 'Show the current step, reasoning and replies on screen.',
@@ -272,7 +274,7 @@ window.__ModuleLoader__.load({
       const applyOverlaySwitch = (field, value) => applyOverlayPatch({ [field]: value });
       const openProgress = () => applyOverlayPatch({ ...Object.fromEntries(overlayKeys.map((key) => [key, draft[key]])), progressOverlayEnabled: true, progressPreviewToken: Date.now() });
       const save = async () => {
-        if (!draft.indicatorText.trim() || draft.indicatorText.length > 120 || /[\r\n\x00-\x1f]/.test(draft.indicatorText) || !Number.isInteger(draft.indicatorIdleMs) || draft.indicatorIdleMs < 200 || draft.indicatorIdleMs > 3000) { setMessage(t('invalid')); setTone('error'); return; }
+        if (!draft.indicatorText.trim() || draft.indicatorText.length > 120 || /[\r\n\x00-\x1f]/.test(draft.indicatorText) || !draft.pointerLabel.trim() || draft.pointerLabel.trim().length > 16 || /[\r\n\x00-\x1f]/.test(draft.pointerLabel) || !Number.isInteger(draft.indicatorIdleMs) || draft.indicatorIdleMs < 200 || draft.indicatorIdleMs > 3000) { setMessage(t('invalid')); setTone('error'); return; }
         const patch = Object.fromEntries(Object.keys(defaults).filter((key) => !equal(draft[key], saved[key])).map((key) => [key, draft[key]]));
         if (await run(patch, 'saved')) setDirty(false);
       };
@@ -302,6 +304,7 @@ window.__ModuleLoader__.load({
               field(title(t('position'), null, { id: idPrefix + '-position-label' }), h('div', { className: 'arya-segment', role: 'radiogroup', 'aria-labelledby': idPrefix + '-position-label' }, radio('indicatorPosition', 'top', t('top')), radio('indicatorPosition', 'bottom', t('bottom')))),
               field(title(t('delay'), 'delayHint', { htmlFor: idPrefix + '-delay' }), h('div', { className: 'arya-number' }, h('input', { id: idPrefix + '-delay', type: 'number', min: 200, max: 3000, step: 100, value: draft.indicatorIdleMs, disabled: indicatorDisabled, onChange: (e) => change('indicatorIdleMs', Number(e.target.value)) }), h('span', null, t('ms')))),
               field(title(t('text'), null, { htmlFor: idPrefix + '-text' }), h('input', { id: idPrefix + '-text', type: 'text', maxLength: 120, value: draft.indicatorText, disabled: indicatorDisabled, onChange: (e) => change('indicatorText', e.target.value) })),
+              field(title(t('cursorLabel'), 'cursorLabelHint', { htmlFor: idPrefix + '-pointerLabel' }), h('input', { id: idPrefix + '-pointerLabel', type: 'text', maxLength: 16, value: draft.pointerLabel, disabled: disabled || !draft.cursorIndicatorEnabled, onChange: (e) => change('pointerLabel', e.target.value) })),
               field(title(t('remoteVisible'), 'remoteVisibleHint', { htmlFor: idPrefix + '-remoteIndicatorVisible' }), toggle('remoteIndicatorVisible', 'remoteVisible'))))),
         h('section', { className: 'arya-section', 'data-arya-progress-settings': true, 'aria-labelledby': idPrefix + '-progress-title' },
           head(idPrefix + '-progress-title', 'progressTitle', null, button('openProgress', { 'data-arya-open-progress': true, className: 'arya-small', disabled, onClick: openProgress })),

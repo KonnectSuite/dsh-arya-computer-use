@@ -218,7 +218,8 @@ namespace DshTakeover {
     DateTime hideAt = DateTime.MaxValue;
     bool indicator = true, cursorIndicator = true, remoteVisible = true;
     int cursorError;
-    string text = "DSH is controlling your computer", position = "top";
+    string text = "Arya is controlling your computer", position = "top";
+    string pointerLabel = PointerFrame.Label;
     int idleMs = 800;
 
     internal Controller(string eventName, bool tests) {
@@ -306,6 +307,7 @@ namespace DshTakeover {
           bool nextIndicator = Get(command, "indicatorEnabled", true);
           ConfigureVisibility(Get(command,"remoteIndicatorVisible",true));
           cursorIndicator = Get(command, "cursorIndicatorEnabled", true);
+          ApplyPointerLabel(Get(command, "pointerLabel", pointerLabel));
           string nextText = Get(command, "indicatorText", "DSH is controlling your computer"), nextPosition = Get(command, "indicatorPosition", "top");
           bool rebuild = nextIndicator != indicator || nextText != text || nextPosition != position || frames.Count == 0;
           indicator = nextIndicator; text = nextText; position = nextPosition;
@@ -399,6 +401,7 @@ namespace DshTakeover {
         } else if (action == "configure") {
           ConfigureShortcut(Get(command, "stopShortcut", ""));
           ConfigureVisibility(Get(command,"remoteIndicatorVisible",remoteVisible));
+          ApplyPointerLabel(Get(command, "pointerLabel", pointerLabel));
           cursorIndicator = Get(command, "cursorIndicatorEnabled", cursorIndicator); UpdatePointer(255);
         } else if (action == "end") {
           hideAt = DateTime.UtcNow.AddMilliseconds(idleMs);
@@ -530,6 +533,14 @@ namespace DshTakeover {
       else pointer.Update(point, alpha);
     }
     void HidePointer() { if (pointer != null) { pointer.Dispose(); pointer = null; } ghostPlaced = false; }
+    // The ghost cursor tag is user-configurable; a change redraws the sprite.
+    void ApplyPointerLabel(string next) {
+      if (string.IsNullOrWhiteSpace(next)) next = "Arya";
+      next = next.Trim();
+      if (next.Length > 16) next = next.Substring(0, 16);
+      if (next == pointerLabel) return;
+      pointerLabel = next; PointerFrame.Label = next; HidePointer();
+    }
     void CloseProgress() {
       progressCloseWhenIdle=false;
       if(progress!=null){progress.Dispose();progress=null;}
@@ -933,6 +944,8 @@ namespace DshTakeover {
     // The user's pointer size: the arrow's visible extent past its hotspot, in
     // 96-DPI units. Measured once, and again only after Windows reports a
     // preference change (pointer size or cursor scheme).
+    // The ghost cursor tag text; set from the plugin settings (default "Arya").
+    internal static string Label = "Arya";
     static SizeF? pointerExtent;
     internal static void ForgetPointerSize() { pointerExtent=null; }
     internal static SizeF PointerExtent() {
@@ -1025,7 +1038,7 @@ namespace DshTakeover {
         // A solid name tag just past the arrow, like collaborative cursors.
         using(var font=new Font("Segoe UI",10,FontStyle.Bold,GraphicsUnit.Pixel))
         using(var format=new StringFormat(StringFormat.GenericTypographic) { Alignment=StringAlignment.Center, LineAlignment=StringAlignment.Center }) {
-          float w=(float)Math.Ceiling(g.MeasureString("DSH",font,PointF.Empty,format).Width)+14,h=19;
+          float w=(float)Math.Ceiling(g.MeasureString(Label,font,PointF.Empty,format).Width)+14,h=19;
           // Below-right clears the pointer's whole extent; the other corners only need to clear the tip.
           float bx=left?x-8-w:up?x+13:x+TagX(extent),by=up?y-10-h:left?y+17:y+TagY(extent);
           using(var shadow=Frame.Rounded(new RectangleF(bx,by+1.5f,w,h),6)) using(var brush=new SolidBrush(Color.FromArgb(60,0,0,0))) g.FillPath(brush,shadow);
@@ -1033,7 +1046,7 @@ namespace DshTakeover {
             using(var fill=new SolidBrush(Color.FromArgb(255,57,100,254)))g.FillPath(fill,shape);
             using(var outline=new Pen(Color.FromArgb(240,255,255,255),1.25f))g.DrawPath(outline,shape);
           }
-          using(var brush=new SolidBrush(Color.White))g.DrawString("DSH",font,brush,new RectangleF(bx,by+.5f,w,h),format);
+          using(var brush=new SolidBrush(Color.White))g.DrawString(Label,font,brush,new RectangleF(bx,by+.5f,w,h),format);
         }
       }
       return image;

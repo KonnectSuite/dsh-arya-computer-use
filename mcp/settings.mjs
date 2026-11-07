@@ -5,7 +5,7 @@
 export const DEFAULT_SETTINGS = Object.freeze({
   progressOverlayEnabled: true, progressOverlayMode: 'source',
   progressOverlayOpacity: 60, progressOverlayWidth: 360, progressOverlayHeight: 240, progressOverlayPosition: 'top-right', progressOverlayX: 80, progressOverlayY: 80, progressOverlayLocked: true, progressLockShortcut: '', progressPreviewToken: 0,
-  indicatorEnabled: true, cursorIndicatorEnabled: true, remoteIndicatorVisible: true, indicatorText: 'DSH is controlling your computer',
+  indicatorEnabled: true, cursorIndicatorEnabled: true, remoteIndicatorVisible: true, indicatorText: 'Arya is controlling your computer', pointerLabel: 'Arya',
   indicatorPosition: 'top', indicatorIdleMs: 800, stopShortcut: '',
   resumeToken: 0, previewToken: 0,
   headedDefault: false, overlayDefault: true, driverLockEnabled: true,
@@ -53,6 +53,10 @@ export function normalizeSettings(input = {}) {
   if (typeof value.indicatorText !== 'string' || !value.indicatorText.trim() || value.indicatorText.length > 120 || /[\r\n\x00-\x1f]/.test(value.indicatorText)) {
     throw new Error('indicatorText must be one line of 1–120 characters');
   }
+  if (typeof value.pointerLabel !== 'string' || !value.pointerLabel.trim() || value.pointerLabel.trim().length > 16 || /[\r\n\x00-\x1f]/.test(value.pointerLabel)) {
+    throw new Error('pointerLabel must be one line of 1–16 characters');
+  }
+  value.pointerLabel = value.pointerLabel.trim();
   if (!['top', 'bottom'].includes(value.indicatorPosition)) throw new Error('indicatorPosition must be top or bottom');
   if (!Number.isInteger(value.indicatorIdleMs) || value.indicatorIdleMs < 200 || value.indicatorIdleMs > 3000) throw new Error('indicatorIdleMs must be 200–3000');
   value.stopShortcut = normalizeStopShortcut(value.stopShortcut);
