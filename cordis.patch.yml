@@ -22,14 +22,19 @@
         # engine's private-file DACL check (inherited AppContainer ACEs).
         toolCallTimeoutMs: 120000
         failOnStartupError: true
+    # DEV row: run the pinned agent-browser from this checkout's node_modules
+    # directly. npx at startup does registry resolution that overruns the
+    # MCP client's initial connection window (observed: 'initial connection
+    # or tool synchronization failed. SdkError: Connection closed'). After
+    # npm publish, the npx form is acceptable for end users.
     - id: mcp-arya-browser
       name: '@deepseek-ai/dsh-mcp-client'
       config:
         serverName: arya_browser
         transport: stdio
-        command: npx
+        command: node
         args:
-          - '-y'
-          - 'agent-browser@0.41.2'
+          - 'C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-computer-use\node_modules\agent-browser\bin\agent-browser.js'
           - 'mcp'
+        toolCallTimeoutMs: 120000
         failOnStartupError: true
