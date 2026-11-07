@@ -34,7 +34,6 @@
         transport: stdio
         command: node
         args:
-          - 'C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-computer-use\node_modules\agent-browser\bin\agent-browser.js'
-          - 'mcp'
+          - 'C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-computer-use\mcp\browser-launcher.mjs'
         toolCallTimeoutMs: 120000
         failOnStartupError: true

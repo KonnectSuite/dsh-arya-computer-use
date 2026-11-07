@@ -55,7 +55,24 @@ const state = {
   headedDefault: false,
   overlayDefault: true,
   windowId: null,
+  toolPreset: 'lite', // 'lite' = all 16 tools, 'lazy' = three to start, rest on demand
+  extraTools: new Set(), // tools revealed by tools {operation:'load'} in the lazy preset
 };
+
+// The lazy preset starts with the three tools needed to look, read, and act
+// once; everything else is revealed through `tools {operation:'load'}` and a
+// tools/list_changed notification. The harness re-syncs on that notification
+// (dsh-mcp-client wires listChanged.onChanged → refreshTools).
+const LAZY_CORE = ['tools', 'snapshot', 'click'];
+const exposedTools = () => (state.toolPreset === 'lazy'
+  ? TOOLS.filter((tool) => LAZY_CORE.includes(tool.name) || state.extraTools.has(tool.name))
+  : TOOLS);
+
+function notifyToolsChanged() {
+  // Advertised through capabilities.tools.listChanged; the client re-lists and
+  // swaps its registered tool generation.
+  send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+}
 const effectiveHeaded = () => state.headedOverride ?? state.headedDefault;
 const effectiveOverlay = () => state.overlayOverride ?? state.overlayDefault;
 
@@ -64,6 +81,12 @@ setInterval(() => {
     const settings = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8'));
     state.headedDefault = settings.headedDefault !== false;
     state.overlayDefault = settings.overlayDefault !== false;
+    const preset = settings.toolPreset === 'lazy' ? 'lazy' : 'lite';
+    if (preset !== state.toolPreset) {
+      state.toolPreset = preset;
+      state.extraTools.clear();
+      notifyToolsChanged();
+    }
   } catch {
     // Settings file not written yet (plugin not loaded): keep the defaults.
   }
@@ -286,8 +309,8 @@ const TOOLS = [
   tool('ocr', 'Read text from a screenshot via Windows OCR (for canvas/games/no-a11y-tree UIs). Returns lines with SCREEN coordinates (not refs). query filters lines.', { app: str, window_id: str, screen: int, query: str }),
   tool('batch', `Run 1-${MAX_BATCH} planned actions on one target; stops on first error, then observes once. Each step: {action, arguments}. Actions: snapshot,find,get,is,click,set_value,type,press,scroll,wait.`, { commands_json: str, stop_on_error: bool, timeout_ms: int }, ['commands_json']),
   tool('tools',
-    'Manage the adapter: operation list|describe (tool surface + state), headed {on} (per-conversation headed toggle — use when headless is not an option: cursor-moving input, notifications, shell surfaces), overlay {on} (presentation cursor overlay), session_end {operation} (end this conversation\'s driver session).',
-    { operation: str, name: str, on: bool }),
+    'Manage the adapter: operation list|describe (tool surface + state), load {names} (reveal tools when the lazy preset is on), headed {on} (per-conversation headed toggle — use when headless is not an option: cursor-moving input, notifications, shell surfaces), overlay {on} (presentation cursor overlay), session_end {operation} (end this conversation\'s driver session).',
+    { operation: str, name: str, names: { type: 'array', items: str }, on: bool }),
 ];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
@@ -422,6 +445,37 @@ async function callTool(name, args = {}) {
           }
           return { content: [{ type: 'text', text: JSON.stringify({ ok: true, overlay: effectiveOverlay(), note: 'applies at next session start' }) }] };
         }
+        if (op === 'load') {
+          // Lazy preset only: reveal tools on demand. `names` may name several
+          // tools ('all' or no names reveals every remaining tool).
+          const requested = Array.isArray(args.names)
+            ? args.names
+            : typeof args.names === 'string' && args.names.trim()
+              ? args.names.split(/[,\s]+/).filter(Boolean)
+              : [];
+          const unknown = requested.filter((name) => !TOOLS_BY_NAME.has(name));
+          if (unknown.length > 0) {
+            return { content: [{ type: 'text', text: JSON.stringify({ ok: false, unknown, hint: 'see tools {operation:"describe"} or the tool list' }) }], isError: true };
+          }
+          const before = exposedTools().length;
+          const revealAll = requested.length === 0 || requested.includes('all');
+          for (const tool of TOOLS) {
+            if (revealAll || requested.includes(tool.name)) state.extraTools.add(tool.name);
+          }
+          const after = exposedTools().length;
+          if (after !== before) notifyToolsChanged();
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                ok: true,
+                preset: state.toolPreset,
+                revealed: after - before,
+                tools: exposedTools().map((tool) => tool.name),
+              }),
+            }],
+          };
+        }
         if (op === 'session_end') {
           const env = parseEnvelope(await runCli(['session', 'end']));
           await runCli(['session', 'gc']);
@@ -433,7 +487,9 @@ async function callTool(name, args = {}) {
           content: [{
             type: 'text',
             text: JSON.stringify({
-              tools: TOOLS.map((t) => t.name),
+              tools: exposedTools().map((t) => t.name),
+              preset: state.toolPreset,
+              hidden: state.toolPreset === 'lazy' ? TOOLS.length - exposedTools().length : 0,
               state: { session: state.sessionId, sessionStarted: state.sessionStarted, headed: effectiveHeaded(), headedDefault: state.headedDefault, overlay: effectiveOverlay(), overlayDefault: state.overlayDefault },
               engine_state_root: ENGINE_STATE_ROOT,
             }),
@@ -537,7 +593,7 @@ rl.on('line', (line) => {
   if (method === 'initialize') {
     reply(id, {
       protocolVersion: '2025-06-18',
-      capabilities: { tools: { listChanged: false } },
+      capabilities: { tools: { listChanged: true } },
       serverInfo: server,
       instructions: INSTRUCTIONS,
     });
@@ -549,7 +605,7 @@ rl.on('line', (line) => {
     return;
   }
   if (method === 'tools/list') {
-    reply(id, { tools: TOOLS });
+    reply(id, { tools: exposedTools() });
     return;
   }
   if (method === 'tools/call') {

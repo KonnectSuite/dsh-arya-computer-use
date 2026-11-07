@@ -1,7 +1,7 @@
 {
   "name": "@konnectsuite/dsh-plugin-arya-computer-use",
   "version": "0.1.0",
-  "description": "Computer use for DSH/AryaCode: agent-desktop UIA engine + agent-browser web lane + takeover UI, replacing dsh-computer-use-win",
+  "description": "Computer use for DSH/AryaCode: agent-desktop UIA engine, agent-browser web lane, takeover UI with a ghost cursor",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -26,6 +26,7 @@
     "mcp/settings.mjs",
     "mcp/takeover.mjs",
     "mcp/activity.mjs",
+    "mcp/browser-launcher.mjs",
     "scripts/windows-takeover.ps1",
     "scripts/windows-takeover.cs",
     "scripts/ocr.ps1",
@@ -64,5 +65,27 @@
         "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KonnectSuite/dsh-arya-computer-use.git"
+  },
+  "homepage": "https://github.com/KonnectSuite/dsh-arya-computer-use#readme",
+  "bugs": {
+    "url": "https://github.com/KonnectSuite/dsh-arya-computer-use/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "computer-use",
+    "agent-desktop",
+    "uia",
+    "accessibility",
+    "agent-browser",
+    "windows"
+  ],
+  "author": "KonnectSuite",
+  "publishConfig": {
+    "access": "public"
   }
 }

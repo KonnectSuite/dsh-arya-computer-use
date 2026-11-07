@@ -14,6 +14,8 @@ window.__ModuleLoader__.load({
       remoteIndicatorVisible: true, indicatorText: 'Arya is controlling your computer', pointerLabel: 'Arya', indicatorPosition: 'top',
       indicatorIdleMs: 800, stopShortcut: '', resumeToken: 0, previewToken: 0,
       headedDefault: false, overlayDefault: true, driverLockEnabled: true,
+      toolPreset: 'lite',
+  browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserHeaded: false,
     };
     const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
     const dictionaries = {
@@ -34,9 +36,18 @@ window.__ModuleLoader__.load({
         progressOpacity: '背景不透明度（%）', progressWidth: '宽度（像素）', progressHeight: '高度（像素）',
         progressPosition: '浮窗位置', progress_topRight: '右上', progress_topLeft: '左上', progress_bottomRight: '右下', progress_bottomLeft: '左下', progress_custom: '自定义',
         progressX: 'X 坐标', progressY: 'Y 坐标', progressShortcut: '浮窗解锁快捷键', progressShortcutHint: '按下后临时解锁浮窗以便拖动。留空表示不设置。',
-        behaviorTitle: '操作方式', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: input goes through background accessibility patterns and never moves your pointer or steals focus. Turn on to use real keyboard/mouse input, which briefly focuses the target window.',
+        toolSurfaceTitle: '工具范围', toolPreset: '工具预设', toolPresetHint: 'lite 直接列出全部 16 个工具；lazy 只暴露 tools / snapshot / click，其余按需加载。修改后需重启 MCP 生效。', toolPresetLite: 'lite · 全部 16 个', toolPresetLazy: 'lazy · 按需加载',
+  behaviorTitle: '操作方式', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: input goes through background accessibility patterns and never moves your pointer or steals focus. Turn on to use real keyboard/mouse input, which briefly focuses the target window.',
         overlayDefault: '引擎会话叠加层', overlayDefaultHint: '启动桌面会话时启用引擎自带的光标叠加层。Arya 的虚拟光标不依赖它。',
         driverLock: '单会话驱动', driverLockHint: '同一时间只允许一个对话操作桌面；其他对话调用桌面工具会收到 BUSY 提示。关闭后最近使用的对话自动接管。',
+        browserTitle: '网页通道', browserTools: '工具范围', browserToolsHint: 'agent-browser 向 MCP 暴露的工具集。修改后需重启 MCP 生效。',
+        browserProfile: 'Chrome 配置', browserProfileHint: '配置名称（如 Default）或目录路径，让网页通道复用你的登录状态。',
+        browserSession: '会话名', browserSessionHint: '隔离的会话键；不同会话名的 Cookie 与标签页彼此独立。',
+        browserCdp: '连接我的浏览器', browserCdpHint: 'CDP 地址，例如 http://127.0.0.1:9222。用 --remote-debugging-port=9222 启动 Chrome 即可共享已登录的窗口。',
+        browserStateFile: '已保存的登录状态', browserStateFileHint: '用 agent-browser state save 保存的 JSON 状态文件路径。',
+        browserHeaded: '显示浏览器窗口', browserHeadedHint: '打开可见的 Chromium 窗口，而不是无头运行。',
+        browserRestart: '网页通道设置在下一次 MCP 重启后生效。',
+        invalidBrowser: '会话名只能包含字母、数字、连字符和下划线；CDP 地址需为端口、http(s):// 或 ws:// 地址；状态文件需为绝对路径。',
         stop: '停止与恢复', escTitle: '按 Esc 停止操作', escAlways: 'Esc 始终可用',
         stopHint: '停止后保持暂停，准备好再恢复。普通鼠标移动不会停止接管。',
         extraStop: '自定义停止方式', shortcutHint: '点击“录制快捷键”，再按下想用的按键或组合键，例如 F8 或 Ctrl + Alt + K。保存后生效；恢复默认后仅保留 Esc。',
@@ -54,6 +65,10 @@ window.__ModuleLoader__.load({
         launchAction: '请求启动应用', toolsAction: '查看了工具配置', working: '正在操作…', completed: '已完成',
         failedAction: '未完成', stoppedAction: '已停止', seriesTitle: '本轮桌面操作', sentOnly: '操作已发送，效果待确认',
         showDetails: '查看步骤和截图', seriesCount: '步操作', stepError: '操作失败', and: '，并',
+        openPage: '打开了网页', readPage: '读取了网页', lookPage: '查看了网页', clickPage: '点击了网页元素', typePage: '在网页中输入',
+        keyPage: '发送了按键', shotPage: '截取了网页', evalPage: '执行了页面脚本', tabsPage: '管理了标签页', closePage: '关闭了浏览器',
+        waitPage: '等待网页响应', infoPage: '读取了页面信息', scrollPage: '滚动了网页', navPage: '导航到新地址', selectPage: '选择了选项',
+        togglePage: '切换了页面控件',
       },
       en: {
         nav: 'Computer Use', title: 'Arya Computer Use', pluginDescription: 'Drives Windows apps through accessibility controls, shows a takeover indicator, and stops on Esc.',
@@ -72,9 +87,18 @@ window.__ModuleLoader__.load({
         progressOpacity: 'Background opacity (%)', progressWidth: 'Width (px)', progressHeight: 'Height (px)',
         progressPosition: 'Overlay position', progress_topRight: 'Top right', progress_topLeft: 'Top left', progress_bottomRight: 'Bottom right', progress_bottomLeft: 'Bottom left', progress_custom: 'Custom',
         progressX: 'X coordinate', progressY: 'Y coordinate', progressShortcut: 'Overlay unlock shortcut', progressShortcutHint: 'Press to temporarily unlock the overlay so you can drag it. Empty means none.',
-        behaviorTitle: 'Control style', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: input goes through background accessibility patterns and never moves your pointer or steals focus. Turn on to use real keyboard/mouse input, which briefly focuses the target window.',
+        toolSurfaceTitle: 'Tool surface', toolPreset: 'Tool preset', toolPresetHint: 'lite lists all 16 tools up front; lazy exposes tools / snapshot / click and loads the rest on demand. Changes apply after the next MCP restart.', toolPresetLite: 'lite · all 16', toolPresetLazy: 'lazy · load on demand',
+  behaviorTitle: 'Control style', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: input goes through background accessibility patterns and never moves your pointer or steals focus. Turn on to use real keyboard/mouse input, which briefly focuses the target window.',
         overlayDefault: 'Engine session overlay', overlayDefaultHint: "Starts the desktop session with the engine's own cursor overlay. Arya's ghost cursor does not depend on it; leave it off unless you want the engine marker too.",
         driverLock: 'One conversation drives at a time', driverLockHint: 'While one conversation is driving, desktop calls from other conversations receive a BUSY notice. Turn off to let the most recent conversation take over automatically.',
+        browserTitle: 'Web lane', browserTools: 'Tool surface', browserToolsHint: 'Which agent-browser tool profiles the MCP server exposes. Changing this applies on the next MCP restart.',
+        browserProfile: 'Chrome profile', browserProfileHint: 'A profile name such as Default, or a directory path, so the web lane reuses your sign-ins.',
+        browserSession: 'Session', browserSessionHint: 'An isolated session key; cookies and tabs stay separate per name.',
+        browserCdp: 'Connect to my browser', browserCdpHint: 'A CDP endpoint such as http://127.0.0.1:9222. Start Chrome with --remote-debugging-port=9222 to share a signed-in window.',
+        browserStateFile: 'Saved sign-in state', browserStateFileHint: 'Path to a JSON state file written by agent-browser state save.',
+        browserHeaded: 'Show the browser window', browserHeadedHint: 'Open a visible Chromium window instead of running headless.',
+        browserRestart: 'Web lane settings apply after the next MCP restart.',
+        invalidBrowser: 'The session may contain letters, numbers, hyphens and underscores; the CDP value must be a port, an http(s):// URL or a ws:// URL; the state file must be an absolute path.',
         stop: 'Stop and resume', escTitle: 'Press Esc to stop', escAlways: 'Esc always works',
         stopHint: 'Control stays paused until you resume. Ordinary mouse movement does not stop it.',
         extraStop: 'Custom stop shortcut', shortcutHint: 'Click Record shortcut, then press a key or combination, such as F8 or Ctrl + Alt + K. Save to apply. Restoring the default keeps only Esc.',
@@ -92,6 +116,10 @@ window.__ModuleLoader__.load({
         launchAction: 'Requested app launch', toolsAction: 'Viewed tool settings', working: 'Working…', completed: 'Completed',
         failedAction: 'Incomplete', stoppedAction: 'Stopped', seriesTitle: 'Desktop activity', sentOnly: 'Input sent; effect unconfirmed',
         showDetails: 'Steps and screenshots', seriesCount: 'steps', stepError: 'Action failed', and: ', then ',
+        openPage: 'Opened a page', readPage: 'Read the page', lookPage: 'Looked at the page', clickPage: 'Clicked in the page', typePage: 'Typed in the page',
+        keyPage: 'Sent a key press', shotPage: 'Captured the page', evalPage: 'Evaluated on the page', tabsPage: 'Managed tabs', closePage: 'Closed the browser',
+        waitPage: 'Waited for the page', infoPage: 'Read page information', scrollPage: 'Scrolled the page', navPage: 'Navigated', selectPage: 'Selected an option',
+        togglePage: 'Toggled a page control',
       },
     };
     function shortcutFromEvent(event) {
@@ -275,6 +303,7 @@ window.__ModuleLoader__.load({
       const openProgress = () => applyOverlayPatch({ ...Object.fromEntries(overlayKeys.map((key) => [key, draft[key]])), progressOverlayEnabled: true, progressPreviewToken: Date.now() });
       const save = async () => {
         if (!draft.indicatorText.trim() || draft.indicatorText.length > 120 || /[\r\n\x00-\x1f]/.test(draft.indicatorText) || !draft.pointerLabel.trim() || draft.pointerLabel.trim().length > 16 || /[\r\n\x00-\x1f]/.test(draft.pointerLabel) || !Number.isInteger(draft.indicatorIdleMs) || draft.indicatorIdleMs < 200 || draft.indicatorIdleMs > 3000) { setMessage(t('invalid')); setTone('error'); return; }
+        if ((draft.browserSession && !/^[\p{L}\p{N}_-]+$/u.test(draft.browserSession)) || (draft.browserCdp && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(draft.browserCdp)) || (draft.browserStateFile && !/^(?:[A-Za-z]:[\\/]|\/)/.test(draft.browserStateFile))) { setMessage(t('invalidBrowser')); setTone('error'); return; }
         const patch = Object.fromEntries(Object.keys(defaults).filter((key) => !equal(draft[key], saved[key])).map((key) => [key, draft[key]]));
         if (await run(patch, 'saved')) setDirty(false);
       };
@@ -321,7 +350,19 @@ window.__ModuleLoader__.load({
           h('div', { className: 'arya-grid' },
             switchItem('headedDefault', 'headedDefault', 'headedDefaultHint', arts.keyboard(draft.headedDefault)),
             switchItem('overlayDefault', 'overlayDefault', 'overlayDefaultHint', arts.cursor(draft.overlayDefault)),
-            switchItem('driverLockEnabled', 'driverLock', 'driverLockHint', arts.shield(draft.driverLockEnabled)))),
+            switchItem('driverLockEnabled', 'driverLock', 'driverLockHint', arts.shield(draft.driverLockEnabled)),
+            field(title(t('toolPreset'), 'toolPresetHint', { htmlFor: idPrefix + '-toolPreset' }), h('select', { id: idPrefix + '-toolPreset', value: draft.toolPreset, disabled, onChange: (e) => change('toolPreset', e.target.value) }, h('option', { value: 'lite' }, t('toolPresetLite')), h('option', { value: 'lazy' }, t('toolPresetLazy')))))),
+        h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-browser-title' },
+          head(idPrefix + '-browser-title', 'browserTitle'),
+          h('div', { className: 'arya-grid' },
+            field(title(t('browserTools'), 'browserToolsHint', { htmlFor: idPrefix + '-browserTools' }), h('select', { id: idPrefix + '-browserTools', value: draft.browserTools, disabled, onChange: (e) => change('browserTools', e.target.value) }, ...['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'].map((key) => h('option', { key, value: key }, key)))),
+            switchItem('browserHeaded', 'browserHeaded', 'browserHeadedHint', arts.monitor && arts.monitor(draft.browserHeaded) || arts.cursor(draft.browserHeaded))),
+          h('div', { className: 'arya-fields' },
+            field(title(t('browserProfile'), 'browserProfileHint', { htmlFor: idPrefix + '-browserProfile' }), h('input', { id: idPrefix + '-browserProfile', type: 'text', maxLength: 200, placeholder: 'Default', value: draft.browserProfile, disabled, onChange: (e) => change('browserProfile', e.target.value) })),
+            field(title(t('browserSession'), 'browserSessionHint', { htmlFor: idPrefix + '-browserSession' }), h('input', { id: idPrefix + '-browserSession', type: 'text', maxLength: 64, placeholder: 'arya', value: draft.browserSession, disabled, onChange: (e) => change('browserSession', e.target.value) })),
+            field(title(t('browserCdp'), 'browserCdpHint', { htmlFor: idPrefix + '-browserCdp' }), h('input', { id: idPrefix + '-browserCdp', type: 'text', maxLength: 200, placeholder: 'http://127.0.0.1:9222', value: draft.browserCdp, disabled, onChange: (e) => change('browserCdp', e.target.value) })),
+            field(title(t('browserStateFile'), 'browserStateFileHint', { htmlFor: idPrefix + '-browserStateFile' }), h('input', { id: idPrefix + '-browserStateFile', type: 'text', maxLength: 400, value: draft.browserStateFile, disabled, onChange: (e) => change('browserStateFile', e.target.value) }))),
+          h('p', { className: 'arya-hint' }, t('browserRestart'))),
         h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-stop-title' },
           head(idPrefix + '-stop-title', 'stop', null, button('clearShortcut', { className: 'arya-small', disabled: disabled || !draft.stopShortcut, onClick: () => { change('stopShortcut', ''); setRecordMessage(''); } })),
           h('div', { className: 'arya-grid' },
@@ -336,8 +377,10 @@ window.__ModuleLoader__.load({
           h('div', { className: 'arya-actions' }, button('discard', { disabled: !dirty || saving || recording, onClick: () => { setDraft(saved); setDirty(false); setMessage(''); setRecordMessage(''); } }), button('save', { className: 'arya-primary', disabled: !dirty || disabled, onClick: save }))));
     }
     const actionKeys = { snapshot: 'see', screenshot: 'see', list_windows: 'windows', find: 'findControl', get: 'read', is: 'read', click: 'clickAction', set_value: 'valueAction', type: 'typeAction', press: 'keyAction', scroll: 'scrollAction', wait: 'waitAction', ocr: 'ocrAction', launch: 'launchAction', batch: 'seriesTitle', tools: 'toolsAction' };
-    const shortTool = (name) => String(name || '').replace(/^mcp__arya_desktop__/, '');
-    const desktopTool = (name) => /^mcp__arya_desktop__(?!tools$)[a-z_]+$/.test(name || '');
+    const browserActionKeys = { open: 'openPage', read: 'readPage', snapshot: 'lookPage', click: 'clickPage', dblclick: 'clickPage', fill: 'typePage', type: 'typePage', press: 'keyPage', screenshot: 'shotPage', eval: 'evalPage', tab_new: 'tabsPage', tab_list: 'tabsPage', tab_switch: 'tabsPage', tab_close: 'tabsPage', close: 'closePage', wait_ms: 'waitPage', wait_for_selector: 'waitPage', wait_for_text: 'waitPage', wait_for_load: 'waitPage', get_text: 'readPage', get_url: 'infoPage', get_title: 'infoPage', scroll: 'scrollPage', back: 'navPage', forward: 'navPage', reload: 'navPage', select: 'selectPage', check: 'togglePage', uncheck: 'togglePage' };
+    const isBrowserTool = (name) => /^mcp__arya_browser__/.test(name || '');
+    const shortTool = (name) => String(name || '').replace(/^mcp__arya_desktop__/, '').replace(/^mcp__arya_browser__agent_browser_/, '');
+    const desktopTool = (name) => /^mcp__arya_desktop__(?!tools$)[a-z_]+$/.test(name || '') || (/^mcp__arya_browser__agent_browser_[a-z_]+$/.test(name || '') && name !== 'mcp__arya_browser__agent_browser_close');
     const objectArgs = (value) => { if (typeof value === 'string') try { return JSON.parse(value); } catch { return {}; } return value && typeof value === 'object' ? value : {}; };
     function receipt(message) {
       for (const part of message?.content || []) if (part.type === 'text' && typeof part.text === 'string') try { return JSON.parse(part.text); } catch {}
@@ -348,7 +391,7 @@ window.__ModuleLoader__.load({
     const activityCss = `.arya-activity{color:var(--dsw-alias-label-secondary,inherit);font-size:13px;line-height:1.6;margin:7px 0}.arya-activity>summary{cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none}.arya-activity>summary::-webkit-details-marker{display:none}.arya-activity .arya-activity-label{color:var(--dsw-alias-label-primary,inherit)}.arya-activity .arya-activity-state{font-size:12px;opacity:.72;margin-left:4px}.arya-activity[open]{padding-bottom:8px}.arya-activity ol{margin:10px 0 4px 22px;padding-left:16px}.arya-activity li{padding:3px 0}.arya-activity .arya-activity-note{font-size:12px;opacity:.75}.arya-activity button{color:inherit;background:transparent;border:1px solid var(--dsw-alias-border-l2,#8885);border-radius:6px;padding:3px 8px;cursor:pointer}`;
     function actionText(call, t) {
       const args = objectArgs(call.args), action = shortTool(call.name);
-      let label = t(actionKeys[action] || 'seriesTitle');
+      let label = t((isBrowserTool(call.name) ? browserActionKeys[action] : actionKeys[action]) || 'seriesTitle');
       if (action === 'find') { const query = args.name || args.text || args.value; if (query) label += '「' + String(query).slice(0, 60) + '」'; }
       if (action === 'launch' && args.app) label += '「' + String(args.app).slice(0, 60) + '」';
       return label;
@@ -398,8 +441,8 @@ window.__ModuleLoader__.load({
       return h('details', { className: 'arya-activity', 'data-arya-series': true }, h('style', null, activityCss), h('summary', null, mouseIcon(), h('span', { className: 'arya-activity-label' }, seriesText(state.calls, t)), h('span', { className: 'arya-activity-state' }, t(status) + ' · ' + state.calls.length + ' ' + t('seriesCount'))), h('ol', null, ...state.calls.map((call) => h('li', { key: call.id }, actionText(call, t), activityBody(call, renderFactorySlot, loadImage, t)))));
     }
     function registerActivity(ctx) {
-      const names = Object.keys(actionKeys);
-      ctx.slots.inject('tool.call.toolview', function* () { for (const name of names) for (const prefix of ['mcp__arya_desktop__', '']) yield ctx.slots.register({ name: 'tool.call.toolview', key: prefix + name, locale: NS }, MouseToolRow); });
+      const names = [...Object.keys(actionKeys), ...Object.keys(browserActionKeys)];
+      ctx.slots.inject('tool.call.toolview', function* () { for (const name of names) for (const prefix of ['mcp__arya_desktop__', 'mcp__arya_browser__agent_browser_', '']) yield ctx.slots.register({ name: 'tool.call.toolview', key: prefix + name, locale: NS }, MouseToolRow); });
       ctx.inject(['uiConversation'], (owner) => {
         owner.uiConversation.events.register(seriesDefinition);
         ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({ name: 'conversation.chat.node', key: 'arya-series', locale: NS }, SeriesRow));

@@ -8,7 +8,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   indicatorEnabled: true, cursorIndicatorEnabled: true, remoteIndicatorVisible: true, indicatorText: 'Arya is controlling your computer', pointerLabel: 'Arya',
   indicatorPosition: 'top', indicatorIdleMs: 800, stopShortcut: '',
   resumeToken: 0, previewToken: 0,
-  headedDefault: false, overlayDefault: true, driverLockEnabled: true,
+  headedDefault: false, overlayDefault: true, driverLockEnabled: true, toolPreset: 'lite',
+  browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserHeaded: false,
 });
 
 export const STOP_SHORTCUT_PATTERN = /^(?:(?:Ctrl\+)?(?:Alt\+)?(?:Shift\+)?(?:Win\+)?(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Pause|CapsLock|NumLock|ScrollLock))?$/;
@@ -32,9 +33,11 @@ export function normalizeStopShortcut(value) {
 // returned so it can be reported. Values typed on the settings page (shortcut,
 // text, numbers) stay strict, so a mistyped one is still refused when saved.
 const SETTING_CHOICES = { indicatorPosition: ['top', 'bottom'] };
-const SETTING_SWITCHES = ['progressOverlayEnabled', 'indicatorEnabled', 'cursorIndicatorEnabled', 'remoteIndicatorVisible', 'progressOverlayLocked', 'headedDefault', 'overlayDefault', 'driverLockEnabled'];
+const SETTING_SWITCHES = ['progressOverlayEnabled', 'indicatorEnabled', 'cursorIndicatorEnabled', 'remoteIndicatorVisible', 'progressOverlayLocked', 'headedDefault', 'overlayDefault', 'driverLockEnabled', 'browserHeaded'];
 SETTING_CHOICES.progressOverlayPosition = ['top-right','top-left','bottom-right','bottom-left','custom'];
 SETTING_CHOICES.progressOverlayMode = ['source','summary'];
+SETTING_CHOICES.browserTools = ['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'];
+SETTING_CHOICES.toolPreset = ['lite', 'lazy'];
 export function repairStaleSettings(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { value: input, repaired: [] };
   const value = { ...input }, repaired = [];
@@ -67,6 +70,16 @@ export function normalizeSettings(input = {}) {
   }
   if (!SETTING_CHOICES.progressOverlayPosition.includes(value.progressOverlayPosition)) throw new Error('Invalid progressOverlayPosition');
   if (!SETTING_CHOICES.progressOverlayMode.includes(value.progressOverlayMode)) throw new Error('Invalid progressOverlayMode');
+  if (!SETTING_CHOICES.toolPreset.includes(value.toolPreset)) throw new Error('toolPreset must be one of ' + SETTING_CHOICES.toolPreset.join(', '));
+  if (!SETTING_CHOICES.browserTools.includes(value.browserTools)) throw new Error('browserTools must be one of ' + SETTING_CHOICES.browserTools.join(', '));
+  for (const key of ['browserProfile', 'browserSession', 'browserStateFile', 'browserCdp']) {
+    if (typeof value[key] !== 'string') throw new Error(`${key} must be a string`);
+    if (/[\r\n\x00-\x1f]/.test(value[key])) throw new Error(`${key} must be one line`);
+    value[key] = value[key].trim();
+  }
+  if (value.browserSession && !/^[\p{L}\p{N}_-]+$/u.test(value.browserSession)) throw new Error('browserSession may contain letters, numbers, hyphens and underscores');
+  if (value.browserCdp && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(value.browserCdp)) throw new Error('browserCdp must be a port, an http(s):// URL or a ws:// URL');
+  if (value.browserStateFile && !/^(?:[A-Za-z]:[\\/]|\/)/.test(value.browserStateFile)) throw new Error('browserStateFile must be an absolute path');
   for (const key of ['resumeToken', 'previewToken', 'progressPreviewToken']) {
     if (!Number.isSafeInteger(value[key]) || value[key] < 0) throw new Error(`${key} must be a nonnegative integer`);
   }

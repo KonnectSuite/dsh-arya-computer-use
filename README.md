@@ -63,13 +63,34 @@ Not published to npm yet (`private: true`). Install from a local checkout with `
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Show screen edges and a banner | on | Frame the app window the agent drives, with a banner and the Esc offer |
+| Frame the app window | on | Rim only the driven window plus a banner; monitor edges are just the fallback before a target is known |
 | Show a ghost cursor | on | Draw a synthetic cursor where the agent acts; your pointer is never followed |
-| Ghost cursor name | `Arya` | The tag drawn beside the ghost cursor, 1–16 characters |
+| Agent name | `Arya` | Drives the ghost-cursor tag and the progress-panel header (`Arya · Step 3 · acting`), 1–16 characters |
 | Banner text | `Arya is controlling your computer` | One line, 1–120 characters |
 | Real mouse and keyboard | off | Opted-in headed input for one conversation; the background lane never moves the pointer |
 | One conversation drives at a time | on | Refuses desktop tools in other conversations while a drive is live |
 | Stop shortcut | Esc | Global kill switch; synthetic keystrokes are ignored, so it needs a real keypress |
+| Tool preset | `lite` | `lite` lists all 16 desktop tools; `lazy` starts with tools/snapshot/click and reveals the rest on demand |
+| Tool surface (web) | `core` | agent-browser tool profile: core 29, network 9, state 27, debug 40, tabs 13, react 8, mobile 15, webmcp 4, all 156 |
+| Chrome profile / Session | – / `arya` | Reuse a Chrome login state and name the browser session |
+| Connect to my browser | – | `--cdp` port or URL to attach to a Chrome you already have open |
+| Saved sign-in state | – | Absolute path to a cookies+localStorage JSON to reuse |
+| Show the browser window | off | `--headed` for the web lane |
+
+## Web lane
+
+The second MCP row (`arya_browser`, server `agent-browser`) runs through `mcp/browser-launcher.mjs`, a transparent stdio pipe that reads the control file and spawns the real server with the settings applied:
+
+```
+node mcp/browser-launcher.mjs          # → agent-browser mcp --tools core [--profile X] [--session Y] [--state Z] [--cdp ...] [--headed]
+```
+
+So sign-in reuse and attaching to your own Chrome are settings, not hand-edited rows. Web-lane changes land on the next MCP restart; the settings page says so.
+
+## Tool presets
+
+- `lite` (default) — all 16 desktop tools listed up front.
+- `lazy` — starts with `tools`, `snapshot`, `click`; everything else appears after `tools {operation:"load", names:[...]}`. The adapter advertises `tools.listChanged` and emits `notifications/tools/list_changed`, which DSH's MCP client re-syncs (`listChanged.onChanged → refreshTools`), so the new tools become callable immediately.
 
 ## License
 

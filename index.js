@@ -72,9 +72,16 @@ const fields = {
   stopShortcut: z.string().pattern(STOP_SHORTCUT_PATTERN).default('').description('Custom stop shortcut'),
   resumeToken: z.number().min(0).default(0),
   previewToken: z.number().min(0).default(0),
-  headedDefault: z.boolean().default(true).description('Send input with the real keyboard and mouse by default'),
+  headedDefault: z.boolean().default(false).description('Send input with the real keyboard and mouse by default'),
   overlayDefault: z.boolean().default(true).description('Start the cursor overlay with each desktop session'),
   driverLockEnabled: z.boolean().default(true).description('One conversation drives the desktop at a time'),
+  toolPreset: z.union(['lite', 'lazy'].map(value => z.const(value))).default('lite').description('Tool surface size: lite lists all 16 tools; lazy starts with tools/snapshot/click and reveals the rest on demand'),
+  browserTools: z.union(['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'].map(value => z.const(value))).default('core').description('agent-browser tool profiles exposed on the MCP row'),
+  browserProfile: z.string().default('').description('Chrome profile name or directory the web lane reuses for sign-ins'),
+  browserSession: z.string().default('').description('Isolated browser session key'),
+  browserStateFile: z.string().default('').description('Saved sign-in state file for the web lane'),
+  browserCdp: z.string().default('').description('CDP endpoint of a browser to attach to instead of launching one'),
+  browserHeaded: z.boolean().default(false).description('Show the web lane browser window'),
 };
 export const SettingsConfig = z.object(fields);
 
