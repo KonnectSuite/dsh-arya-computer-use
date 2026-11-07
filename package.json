@@ -1,0 +1,42 @@
+{
+  "name": "@konnectsuite/dsh-plugin-arya-computer-use",
+  "version": "0.1.0",
+  "description": "Computer use for DSH/AryaCode: agent-desktop UIA engine + agent-browser web lane + takeover UI, replacing dsh-computer-use-win",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.js",
+    "./mcp/adapter-server.mjs": "./mcp/adapter-server.mjs",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "bin": {
+    "arya-computer-use-mcp": "./mcp/adapter-server.mjs"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "mcp/adapter-server.mjs",
+    "scripts/takeover.ps1",
+    "scripts/ocr.ps1",
+    "skills/arya-desktop/SKILL.md",
+    "locale/en.json",
+    "icon.svg",
+    "LICENSE",
+    "NOTICE.md"
+  ],
+  "engines": {
+    "node": ">=18",
+    "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+  },
+  "dependencies": {
+    "agent-desktop": "1.2.0",
+    "agent-browser": "0.41.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

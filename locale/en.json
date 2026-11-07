@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Arya Computer Use",
+    "description": "Drives Windows apps through accessibility refs (no pixel math) with a takeover indicator, plus a web lane — replaces dsh-computer-use-win."
+  }
+}

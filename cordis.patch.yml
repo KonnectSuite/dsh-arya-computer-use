@@ -1,0 +1,31 @@
+# Arya Computer Use bundle patch.
+# Rows: Host plugin (settings store, driver lock, takeover helper, status endpoint),
+# MCP row arya_desktop (adapter server), MCP row arya_browser (web lane).
+# Phase 1 activates the adapter row; Phase 3 activates the web lane row.
+- insert:
+    - id: arya-computer-use
+      name: '@konnectsuite/dsh-plugin-arya-computer-use'
+      config: {}
+    - id: mcp-arya-desktop
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: arya_desktop
+        transport: stdio
+        command: npx
+        args:
+          - '-y'
+          - '@konnectsuite/dsh-plugin-arya-computer-use@0.1.0'
+        env:
+          ARYA_ADAPTER: '1'
+        failOnStartupError: true
+    - id: mcp-arya-browser
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: arya_browser
+        transport: stdio
+        command: npx
+        args:
+          - '-y'
+          - 'agent-browser@0.41.2'
+          - 'mcp'
+        failOnStartupError: true
