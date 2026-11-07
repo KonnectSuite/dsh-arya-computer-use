@@ -7,7 +7,11 @@
   "private": true,
   "exports": {
     ".": "./index.js",
+    "./client": "./client.js",
     "./mcp/adapter-server.mjs": "./mcp/adapter-server.mjs",
+    "./mcp/settings.mjs": "./mcp/settings.mjs",
+    "./mcp/takeover.mjs": "./mcp/takeover.mjs",
+    "./mcp/activity.mjs": "./mcp/activity.mjs",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
@@ -16,15 +20,21 @@
   },
   "files": [
     "index.js",
+    "client.js",
     "cordis.patch.yml",
     "mcp/adapter-server.mjs",
-    "scripts/takeover.ps1",
+    "mcp/settings.mjs",
+    "mcp/takeover.mjs",
+    "mcp/activity.mjs",
+    "scripts/windows-takeover.ps1",
+    "scripts/windows-takeover.cs",
     "scripts/ocr.ps1",
     "skills/arya-desktop/SKILL.md",
     "locale/en.json",
     "icon.svg",
     "LICENSE",
-    "NOTICE.md"
+    "NOTICE.md",
+    "docs/PLAN.md"
   ],
   "engines": {
     "node": ">=18",
@@ -37,6 +47,10 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-settings"]
     }
   }
 }

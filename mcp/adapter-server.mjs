@@ -17,7 +17,7 @@ import { createInterface } from 'node:readline';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -36,19 +36,38 @@ const PLUGIN_DIR = join(LOCAL_APPDATA, 'dsh-plugin-arya-desktop');
 const SHOTS_DIR = join(PLUGIN_DIR, 'screenshots');
 mkdirSync(SHOTS_DIR, { recursive: true });
 
+// Behavior switches live in the host plugin's control file (settings.register
+// 'arya-computer-use' → index.js writes it here). The adapter polls it so
+// changes apply to the next call without restarting the MCP connection.
+const SETTINGS_FILE = join(PLUGIN_DIR, 'control', 'settings.json');
+
 const VERSION = '0.1.0';
 const MAX_BATCH = 20;
 
 const state = {
   sessionId: `arya-${randomBytes(4).toString('hex')}`,
   sessionStarted: false,
-  headed: false,
-  overlay: true,
+  headedOverride: null, // tools {operation:'headed'} per-conversation toggle
+  overlayOverride: null,
+  headedDefault: true,
+  overlayDefault: true,
 };
+const effectiveHeaded = () => state.headedOverride ?? state.headedDefault;
+const effectiveOverlay = () => state.overlayOverride ?? state.overlayDefault;
+
+setInterval(() => {
+  try {
+    const settings = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8'));
+    state.headedDefault = settings.headedDefault !== false;
+    state.overlayDefault = settings.overlayDefault !== false;
+  } catch {
+    // Settings file not written yet (plugin not loaded): keep the defaults.
+  }
+}, 1000).unref();
 
 /* ------------------------------------------------------------------ CLI */
 
-function runCli(args, { headed = state.headed } = {}) {
+function runCli(args, { headed = effectiveHeaded() } = {}) {
   const argv = [];
   if (headed) argv.push('--headed');
   argv.push(...args);
@@ -128,7 +147,7 @@ async function ensureForeground(refId) {
 async function ensureSession() {
   if (state.sessionStarted) return undefined;
   const args = ['session', 'start'];
-  if (state.overlay) args.push('--cursor');
+  if (effectiveOverlay()) args.push('--cursor');
   const envelope = parseEnvelope(await runCli(args));
   if (envelope.ok === true && typeof envelope.data?.session_id === 'string') {
     state.sessionId = envelope.data.session_id;
@@ -247,9 +266,12 @@ async function callTool(name, args = {}) {
     case 'type':
       return enqueue(async () => {
         await ensureSession();
-        const promote = await ensureForeground(args.ref_id);
-        if (promote) return envelopeResult(promote);
-        return parseEnvelope(await runCli(['type', args.ref_id, args.text ?? '', ...flagArgs([['--interval-ms', args.interval_ms], ['--timeout-ms', args.timeout_ms]])], { headed: true }));
+        const headed = effectiveHeaded();
+        if (headed) {
+          const promote = await ensureForeground(args.ref_id);
+          if (promote) return envelopeResult(promote);
+        }
+        return parseEnvelope(await runCli(['type', args.ref_id, args.text ?? '', ...flagArgs([['--interval-ms', args.interval_ms], ['--timeout-ms', args.timeout_ms]])], { headed }));
       });
     case 'press':
       return enqueue(async () => {
@@ -305,16 +327,16 @@ async function callTool(name, args = {}) {
           return { content: [{ type: 'text', text: t ? JSON.stringify(t) : `unknown tool: ${args.name}` }], isError: !t };
         }
         if (op === 'headed') {
-          state.headed = args.on === true;
-          return { content: [{ type: 'text', text: JSON.stringify({ ok: true, headed: state.headed }) }] };
+          state.headedOverride = args.on === true;
+          return { content: [{ type: 'text', text: JSON.stringify({ ok: true, headed: effectiveHeaded(), headedDefault: state.headedDefault }) }] };
         }
         if (op === 'overlay') {
-          state.overlay = args.on === true;
+          state.overlayOverride = args.on === true;
           if (state.sessionStarted) {
-            const env = parseEnvelope(await runCli([state.overlay ? 'cursor-overlay' : 'cursor-overlay', state.overlay ? 'enable' : 'disable']));
-            return { content: [{ type: 'text', text: JSON.stringify({ ok: env.ok === true, overlay: state.overlay, engine: env }) }] };
+            const env = parseEnvelope(await runCli(['cursor-overlay', state.overlayOverride ? 'enable' : 'disable']));
+            return { content: [{ type: 'text', text: JSON.stringify({ ok: env.ok === true, overlay: effectiveOverlay(), engine: env }) }] };
           }
-          return { content: [{ type: 'text', text: JSON.stringify({ ok: true, overlay: state.overlay, note: 'applies at next session start' }) }] };
+          return { content: [{ type: 'text', text: JSON.stringify({ ok: true, overlay: effectiveOverlay(), note: 'applies at next session start' }) }] };
         }
         if (op === 'session_end') {
           const env = parseEnvelope(await runCli(['session', 'end']));
@@ -328,7 +350,7 @@ async function callTool(name, args = {}) {
             type: 'text',
             text: JSON.stringify({
               tools: TOOLS.map((t) => t.name),
-              state: { session: state.sessionId, sessionStarted: state.sessionStarted, headed: state.headed, overlay: state.overlay },
+              state: { session: state.sessionId, sessionStarted: state.sessionStarted, headed: effectiveHeaded(), headedDefault: state.headedDefault, overlay: effectiveOverlay(), overlayDefault: state.overlayDefault },
               engine_state_root: ENGINE_STATE_ROOT,
             }),
           }],
@@ -396,7 +418,7 @@ const INSTRUCTIONS = [
   'Arya Computer Use: drive Windows apps through semantic UIA refs, not pixels.',
   'Loop: snapshot (skeleton/compact first) -> act on @refs -> re-snapshot to verify.',
   'Refs go stale after window changes: on STALE_REF/AMBIGUOUS_TARGET, re-snapshot.',
-  'type is auto-headed. For cursor-moving input, notifications, shell surfaces: tools {operation:"headed",on:true}.',
+  'type follows the headed setting (default: real keyboard/mouse; tools {operation:"headed",on:false} for background UIA input, on:true to force it).',
   'Chromium windows settle slowly: snapshot with timeout_ms 10000-25000.',
   'Verify stateful actions by re-read; delivered_verified = confirmed, delivered_unverified retry:unsafe = do not blind-repeat.',
   'On ACTION_FAILED post_action_verification the action landed: read data.post_state, do NOT retry.',

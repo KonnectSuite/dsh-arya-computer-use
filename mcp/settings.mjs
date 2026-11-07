@@ -1,0 +1,70 @@
+// Settings for dsh-arya-computer-use. Derived from dsh-computer-use-win (MIT),
+// trimmed to the takeover/indicator fields this plugin uses, plus behavior
+// switches for the adapter (headedDefault, overlayDefault, driverLockEnabled).
+
+export const DEFAULT_SETTINGS = Object.freeze({
+  progressOverlayEnabled: true, progressOverlayMode: 'source',
+  progressOverlayOpacity: 60, progressOverlayWidth: 360, progressOverlayHeight: 240, progressOverlayPosition: 'top-right', progressOverlayX: 80, progressOverlayY: 80, progressOverlayLocked: true, progressLockShortcut: '', progressPreviewToken: 0,
+  indicatorEnabled: true, cursorIndicatorEnabled: true, remoteIndicatorVisible: true, indicatorText: 'DSH 正在控制电脑',
+  indicatorPosition: 'top', indicatorIdleMs: 800, stopShortcut: '',
+  resumeToken: 0, previewToken: 0,
+  headedDefault: true, overlayDefault: true, driverLockEnabled: true,
+});
+
+export const STOP_SHORTCUT_PATTERN = /^(?:(?:Ctrl\+)?(?:Alt\+)?(?:Shift\+)?(?:Win\+)?(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Pause|CapsLock|NumLock|ScrollLock))?$/;
+
+export function normalizeStopShortcut(value) {
+  if (typeof value !== 'string') throw new Error('stopShortcut must be a string');
+  if (!value) return '';
+  const parts = value.split('+'), key = parts.pop();
+  const modifiers = ['Ctrl', 'Alt', 'Shift', 'Win'];
+  if (parts.some(part => !modifiers.includes(part)) || new Set(parts).size !== parts.length ||
+      !/^(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Pause|CapsLock|NumLock|ScrollLock)$/.test(key)) {
+    throw new Error('stopShortcut must be a supported key with optional Ctrl, Alt, Shift, Win modifiers; Esc is always reserved');
+  }
+  return [...modifiers.filter(part => parts.includes(part)), key].join('+');
+}
+
+// A saved value this version does not offer (chosen in another version, or
+// edited by hand) must not keep the plugin from loading: DSH refuses the whole
+// entry when one value fails, and every tool then disappears with no visible
+// error (#39). Such choices fall back to their defaults; each change is
+// returned so it can be reported. Values typed on the settings page (shortcut,
+// text, numbers) stay strict, so a mistyped one is still refused when saved.
+const SETTING_CHOICES = { indicatorPosition: ['top', 'bottom'] };
+const SETTING_SWITCHES = ['progressOverlayEnabled', 'indicatorEnabled', 'cursorIndicatorEnabled', 'remoteIndicatorVisible', 'progressOverlayLocked', 'headedDefault', 'overlayDefault', 'driverLockEnabled'];
+SETTING_CHOICES.progressOverlayPosition = ['top-right','top-left','bottom-right','bottom-left','custom'];
+SETTING_CHOICES.progressOverlayMode = ['source','summary'];
+export function repairStaleSettings(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return { value: input, repaired: [] };
+  const value = { ...input }, repaired = [];
+  const read = key => typeof value[key]?.get === 'function' ? value[key].get() : value[key];
+  const reset = key => { repaired.push(`${key}: ${JSON.stringify(read(key))}`); delete value[key]; };
+  for (const [key, allowed] of Object.entries(SETTING_CHOICES)) if (read(key) != null && !allowed.includes(read(key))) reset(key);
+  for (const key of SETTING_SWITCHES) if (read(key) != null && typeof read(key) !== 'boolean') reset(key);
+  return { value, repaired };
+}
+
+export function normalizeSettings(input = {}) {
+  const value = { ...DEFAULT_SETTINGS, ...Object.fromEntries(Object.entries(input).map(([key,value])=>[key,typeof value?.get === 'function' ? value.get() : value])) };
+  for (const key of SETTING_SWITCHES) {
+    if (typeof value[key] !== 'boolean') throw new Error(`${key} must be boolean`);
+  }
+  if (typeof value.indicatorText !== 'string' || !value.indicatorText.trim() || value.indicatorText.length > 120 || /[\r\n\x00-\x1f]/.test(value.indicatorText)) {
+    throw new Error('indicatorText must be one line of 1–120 characters');
+  }
+  if (!['top', 'bottom'].includes(value.indicatorPosition)) throw new Error('indicatorPosition must be top or bottom');
+  if (!Number.isInteger(value.indicatorIdleMs) || value.indicatorIdleMs < 200 || value.indicatorIdleMs > 3000) throw new Error('indicatorIdleMs must be 200–3000');
+  value.stopShortcut = normalizeStopShortcut(value.stopShortcut);
+  value.progressLockShortcut = normalizeStopShortcut(value.progressLockShortcut);
+  if (value.progressLockShortcut && value.progressLockShortcut === value.stopShortcut) throw new Error('progressLockShortcut must differ from the stop shortcut');
+  for (const [key,min,max] of [['progressOverlayOpacity',20,100],['progressOverlayWidth',240,1600],['progressOverlayHeight',160,1600],['progressOverlayX',-32768,32767],['progressOverlayY',-32768,32767]]) {
+    if (!Number.isInteger(value[key]) || value[key] < min || value[key] > max) throw new Error(`${key} must be an integer between ${min} and ${max}`);
+  }
+  if (!SETTING_CHOICES.progressOverlayPosition.includes(value.progressOverlayPosition)) throw new Error('Invalid progressOverlayPosition');
+  if (!SETTING_CHOICES.progressOverlayMode.includes(value.progressOverlayMode)) throw new Error('Invalid progressOverlayMode');
+  for (const key of ['resumeToken', 'previewToken', 'progressPreviewToken']) {
+    if (!Number.isSafeInteger(value[key]) || value[key] < 0) throw new Error(`${key} must be a nonnegative integer`);
+  }
+  return Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(key => [key, value[key]]));
+}

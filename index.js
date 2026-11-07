@@ -1,29 +1,262 @@
 // Arya Computer Use — Host plugin entry.
 //
-// Phase 1 (this): registers the arya-desktop workflow skill as a skill
-// provider, global and per-agent (a per-agent provider joins the agent's own
-// layer, rank 350: beats user roots 400/500, yields to project roots 100/200).
-// Pattern derived from @axyatech/dsh-plugin-rea (MIT).
+// Registers:
+//  - the arya-desktop workflow skill (provider, global + per-agent, rank 350;
+//    pattern derived from @axyatech/dsh-plugin-rea (MIT));
+//  - the settings store (settings.register('arya-computer-use', …, applies
+//    'live'), derived from dsh-computer-use-win (MIT));
+//  - the takeover helper (scripts/windows-takeover.ps1: edge glow, banner,
+//    progress overlay, cursor indicator, global Esc kill) driven by
+//    TakeoverControl from the host-side activity file;
+//  - the driver lock (one conversation drives the desktop at a time —
+//    enforced in mcp/activity.mjs via the global tools/execute hook);
+//  - a loopback-only GET /plugins/arya/status for panels and diagnostics.
 //
-// Phase 2: settings store (configEditor), driver lock (one conversation drives
-// the desktop at a time), takeover helper process management
-// (scripts/takeover.ps1: edge glow, status bar, global Esc kill) + loopback
-// GET /plugins/arya/status for the panel.
-//
-// See docs/PLAN.md §2 for the full design.
+// The MCP adapter (mcp/adapter-server.mjs) runs as its own profile entry
+// (mcp-arya-desktop); it polls control/settings.json for the behavior
+// switches. See docs/PLAN.md §2 for the full design.
 
+import z from '@deepseek-ai/schemastery';
+import os from 'node:os';
 import { readFile, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_SETTINGS, normalizeSettings, STOP_SHORTCUT_PATTERN, repairStaleSettings } from './mcp/settings.mjs';
+import { TakeoverControl, atomicJson } from './mcp/takeover.mjs';
+import { installActivity } from './mcp/activity.mjs';
+
+export const name = 'arya-computer-use';
+export const inject = ['tools'];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = join(HERE, 'skills', 'arya-desktop');
 const SKILL_FILE = join(SKILL_DIR, 'SKILL.md');
 const PROVIDER_NAME = 'arya-computer-use';
 const RANK = 350;
+const STATUS_PATH = '/plugins/arya/status';
+const PLUGIN_VERSION = (() => {
+  try { return JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).version ?? '0.0.0'; }
+  catch { return '0.0.0'; }
+})();
 
-/** Register the Host half: the workflow skill provider. */
-export function apply(ctx) {
+// Control files shared with the MCP adapter: the adapter polls settings.json
+// for the behavior switches; the host publishes activity.json and TakeoverControl
+// reads it. Both sides compute this path the same way (plugin-owned directory;
+// the engine's private-DACL check applies only to its own state root).
+export function controlDir() {
+  const local = process.env.LOCALAPPDATA || join(os.homedir(), 'AppData', 'Local');
+  return join(local, 'dsh-plugin-arya-desktop', 'control');
+}
+
+/* ------------------------------------------------------------------ schema */
+
+const fields = {
+  progressOverlayEnabled: z.boolean().default(true).description('Progress overlay'),
+  progressOverlayMode: z.const('source').default('source').description('Overlay content: source'),
+  progressOverlayOpacity: z.number().min(20).max(100).default(60).description('Overlay opacity (%)'),
+  progressOverlayWidth: z.number().min(240).max(1600).default(360).description('Overlay width'),
+  progressOverlayHeight: z.number().min(160).max(1600).default(240).description('Overlay height'),
+  progressOverlayPosition: z.union(['top-right', 'top-left', 'bottom-right', 'bottom-left', 'custom'].map(value => z.const(value))).default('top-right').description('Overlay position'),
+  progressOverlayX: z.number().min(-32768).max(32767).default(80).description('Overlay X'),
+  progressOverlayY: z.number().min(-32768).max(32767).default(80).description('Overlay Y'),
+  progressOverlayLocked: z.boolean().default(true).description('Lock overlay and pass through input'),
+  progressLockShortcut: z.string().pattern(STOP_SHORTCUT_PATTERN).default('').description('Overlay lock shortcut'),
+  progressPreviewToken: z.number().min(0).default(0),
+  indicatorEnabled: z.boolean().default(true).description('Takeover indicator'),
+  cursorIndicatorEnabled: z.boolean().default(true).description('Pointer indicator'),
+  remoteIndicatorVisible: z.boolean().default(true).description('Visible in remote sessions and recordings'),
+  indicatorText: z.string().default(DEFAULT_SETTINGS.indicatorText).description('Banner text'),
+  indicatorPosition: z.union([z.const('top'), z.const('bottom')]).default('top').description('Banner position'),
+  indicatorIdleMs: z.number().min(200).max(3000).default(800).description('Hide delay after the turn (ms)'),
+  stopShortcut: z.string().pattern(STOP_SHORTCUT_PATTERN).default('').description('Custom stop shortcut'),
+  resumeToken: z.number().min(0).default(0),
+  previewToken: z.number().min(0).default(0),
+  headedDefault: z.boolean().default(true).description('Send input with the real keyboard and mouse by default'),
+  overlayDefault: z.boolean().default(true).description('Start the cursor overlay with each desktop session'),
+  driverLockEnabled: z.boolean().default(true).description('One conversation drives the desktop at a time'),
+};
+export const SettingsConfig = z.object(fields);
+
+export function createLiveReference(value) {
+  let current = Array.isArray(value) ? Object.freeze([...value]) : value;
+  return Object.freeze({ get: () => current, [Symbol.for('cosmokit.volatile.write')]: next => { current = next; } });
+}
+// Some Desktop loaders resolve Schemastery without the volatile() convenience
+// method. Never silently omit the metadata the host uses to expose the form.
+export const Config = z.object({
+  ...Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, typeof field.volatile === 'function' ? field.volatile() : field.extra('volatile', true)])),
+});
+// A saved choice this version no longer offers must not keep the plugin from
+// loading: DSH refuses the whole entry when one value fails, and every tool
+// then disappears with no visible error (#39). The validator repairs such
+// values to defaults and reports what changed.
+export const REPAIRED_SETTINGS = Symbol.for('dsh-plugin-arya-computer-use.repairedSettings');
+const validation = Config['~standard'];
+Object.defineProperty(Config, '~standard', { value: { ...validation, validate(input) {
+  let result = validation.validate(input), repaired = [];
+  if (result.issues) {
+    const repair = repairStaleSettings(input);
+    if (repair.repaired.length) { const retry = validation.validate(repair.value); if (!retry.issues) { result = retry; repaired = repair.repaired; } }
+  }
+  if (!result.issues) {
+    try { normalizeSettings(result.value); } catch (error) { return { issues: [{ message: error.message }] }; }
+    for (const key of Object.keys(fields)) {
+      if (typeof result.value[key]?.get !== 'function') result.value[key] = createLiveReference(result.value[key]);
+    }
+    if (repaired.length) Object.defineProperty(result.value, REPAIRED_SETTINGS, { value: Object.freeze(repaired) });
+  }
+  return result;
+} } });
+
+/* -------------------------------------------------------------------- main */
+
+export async function apply(ctx, config) {
+  registerSkillProvider(ctx);
+
+  const root = controlDir();
+  const runtime = { configFile: join(root, 'settings.json'), stateFile: join(root, 'state.json'), activityFile: join(root, 'activity.json'), layoutFile: join(root, 'overlay-layout.json') };
+
+  let desired = normalizeSettings(config), stopped = false;
+  if (config?.[REPAIRED_SETTINGS]?.length) {
+    ctx.logger.warn('dsh-arya-computer-use: saved settings this version does not offer were reset to their defaults: %s', config[REPAIRED_SETTINGS].join('; '));
+  }
+  atomicJson(runtime.configFile, desired);
+
+  // The takeover helper owns the overlay windows, the banner, the cursor
+  // indicator, the global Esc kill, and the paused/stopped series state.
+  const takeover = new TakeoverControl({
+    configFile: runtime.configFile, stateFile: runtime.stateFile, activityFile: runtime.activityFile,
+    config: desired,
+    onStop: error => ctx.logger.warn('dsh-arya-computer-use: %s', error?.message ?? error),
+  });
+  ctx.effect(() => () => { stopped = true; takeover.close().catch(() => {}); });
+
+  // Host-side activity lease: publishes activity.json (drives begin/end/
+  // progress on the takeover helper) and enforces the driver lock.
+  installActivity(ctx, runtime.activityFile, { getSettings: () => desired });
+
+  const applySettings = next => {
+    // Windows readers can briefly deny replacement. Keep desired unchanged on
+    // a failed write so the next poll retries the pending settings.
+    const nextSettings = normalizeSettings(next);
+    atomicJson(runtime.configFile, nextSettings);
+    desired = nextSettings;
+    return Promise.resolve();
+  };
+
+  let saveOverlayPatch, layoutId, layoutSaving = false, layoutRetry = { id: undefined, at: 0, delay: 0 };
+  ctx.effect(() => {
+    const timer = setInterval(() => {
+      if (saveOverlayPatch && !layoutSaving) {
+        try {
+          const layout = JSON.parse(readFileSync(runtime.layoutFile, 'utf8'));
+          // A failed save is retried with backoff (0.5 s, doubling up to 60 s)
+          // and a newer layout at once. A patch that cannot apply is dropped.
+          if (layout.id !== layoutId && !(layout.id === layoutRetry.id && Date.now() < layoutRetry.at)) {
+            const allowed = ['progressOverlayWidth', 'progressOverlayHeight', 'progressOverlayPosition', 'progressOverlayX', 'progressOverlayY', 'progressOverlayLocked', 'progressOverlayEnabled'];
+            let usable = false;
+            try {
+              if (!layout.patch || typeof layout.patch !== 'object' || Object.keys(layout.patch).some(key => !allowed.includes(key))) throw Error('Invalid overlay layout patch');
+              normalizeSettings({ ...desired, ...layout.patch });
+              usable = !(layout.base && Object.entries(layout.base).some(([key, value]) => !allowed.includes(key) || desired[key] !== value));
+            } finally { if (!usable) layoutId = layout.id; }
+            if (usable) {
+              layoutSaving = true;
+              Promise.resolve().then(() => saveOverlayPatch(layout.patch)).then(() => {
+                layoutId = layout.id;
+                layoutRetry = { id: undefined, at: 0, delay: 0 };
+              }, error => {
+                const delay = layoutRetry.id === layout.id ? Math.min(layoutRetry.delay * 2, 60000) : 500;
+                layoutRetry = { id: layout.id, at: Date.now() + delay, delay };
+                ctx.logger.error(error);
+              }).finally(() => { layoutSaving = false; });
+            }
+          }
+        } catch (error) { if (error.code !== 'ENOENT') ctx.logger.error(error); }
+      }
+      // Older validators keep plain values rather than volatile references.
+      // The raw entry still holds any value the validator reset; reset it here too.
+      try {
+        const next = normalizeSettings({ ...config, ...repairStaleSettings(ctx.fiber.entry?.options?.config).value });
+        if (JSON.stringify(next) !== JSON.stringify(desired)) applySettings(next);
+      } catch (error) { ctx.logger.error(error); }
+    }, 250);
+    timer.unref();
+    return () => clearInterval(timer);
+  });
+
+  ctx.inject(['settings'], settingsContext => {
+    if (typeof settingsContext.settings.register !== 'function') {
+      if (typeof settingsContext.settings.update === 'function') settingsContext.inject(['configEditor'], owner => {
+        // DSH 0.2.2's Loader (cordis 4.1) keeps a wrapper of the plugin's fiber
+        // on its entry where 0.2.1 kept the fiber itself; the fiber knows its
+        // entry either way (#72).
+        saveOverlayPatch = patch => {
+          const entries = owner.configEditor.entries();
+          const entry = entries.find(entry => entry === ctx.fiber.entry) ?? entries.find(entry => entry.fiber === ctx.fiber || entry.fiber?.ctx?.fiber === ctx.fiber);
+          if (!entry) throw Error('DSH lists no editable profile entry for this plugin (is it listed twice, or inside another entry?), so overlay moves and resizes are not saved.');
+          return owner.settings.update(entry.options.id, patch);
+        };
+        return () => { saveOverlayPatch = undefined; };
+      });
+      // DSH 0.2 uses volatile Config fields keyed by the profile entry id.
+      if (settingsContext.settings.configure) settingsContext.effect(() => settingsContext.settings.configure({ auto: false }, ctx.fiber));
+      return;
+    }
+    const scope = settingsContext.settings.register('arya-computer-use', SettingsConfig, {
+      base: normalizeSettings(config), applies: 'live', validate: normalizeSettings,
+    });
+    saveOverlayPatch = patch => scope.update(patch);
+    desired = normalizeSettings(scope.get());
+    atomicJson(runtime.configFile, desired);
+    settingsContext.effect(() => scope.watch(applySettings));
+  });
+
+  // Loopback-only status endpoint (pattern derived from @axyatech/dsh-plugin-rea).
+  ctx.inject(['webServer'], web => {
+    web.effect(() => web.webServer.register({ kind: 'exact', path: STATUS_PATH, handler: statusHandler }), 'arya-computer-use: status route');
+  });
+  function statusHandler(req, res) {
+    if (!isLoopbackAddress(req?.socket?.remoteAddress)) return sendJson(res, 403, { error: 'loopback_only' });
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD' });
+      return res.end();
+    }
+    const readJson = file => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
+    const maskHome = text => String(text).split(os.homedir()).join('~');
+    const activity = readJson(runtime.activityFile);
+    sendJson(res, 200, {
+      plugin: '@konnectsuite/dsh-plugin-arya-computer-use',
+      version: PLUGIN_VERSION,
+      controlDir: maskHome(root),
+      settings: desired,
+      takeover: { running: !!takeover.child, paused: takeover.paused, seriesActive: takeover.seriesHeld, stoppedSeriesKey: takeover.stoppedSeriesKey },
+      driver: activity?.active ? { sessionId: activity.sessionId, turn: activity.turn } : null,
+      state: readJson(runtime.stateFile),
+    });
+  }
+  return () => {};
+}
+
+function isLoopbackAddress(address) {
+  if (typeof address !== 'string') return false;
+  return address === '::1' || address === '::ffff:7f00:1' || address.startsWith('127.') || address.startsWith('::ffff:127.');
+}
+function sendJson(res, code, body) {
+  res.writeHead(code, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Cross-Origin-Resource-Policy': 'same-origin',
+    'Referrer-Policy': 'no-referrer',
+  });
+  res.end(JSON.stringify(body));
+}
+
+/* ----------------------------------------------------------- skill provider */
+
+/** Register the workflow skill as a provider, global and per-agent. */
+function registerSkillProvider(ctx) {
   ctx.inject(['skills'], (scoped) => {
     scoped.effect(
       () => scoped.skills.registerProvider(() => createSkillProvider()),
@@ -66,11 +299,7 @@ export function apply(ctx) {
     fiber.dispose?.();
     agentProviders.delete(agent.id);
   });
-
-  return () => {};
 }
-
-/* ----------------------------------------------------------- skill provider */
 
 function createSkillProvider() {
   return {
