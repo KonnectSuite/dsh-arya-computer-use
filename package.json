@@ -1,10 +1,9 @@
 {
   "name": "@konnectsuite/dsh-plugin-arya-computer-use",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Computer use for DSH/AryaCode: agent-desktop UIA engine, agent-browser web lane, takeover UI with a ghost cursor",
   "license": "MIT",
   "type": "module",
-  "private": true,
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

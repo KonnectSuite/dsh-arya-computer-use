@@ -1,39 +1,16 @@
 # Arya Computer Use bundle patch.
-# Rows: Host plugin (settings store, driver lock, takeover helper, status endpoint),
-# MCP row arya_desktop (adapter server), MCP row arya_browser (web lane).
-# Phase 1 activates the adapter row; Phase 3 activates the web lane row.
+#
+# One row: the Host plugin. It registers the skill, the settings page, the chat
+# rows, the driver lock, the takeover helper and the status endpoint — and it
+# mounts both MCP lanes in-process through the harness's own mcp-client plugin.
+#
+# Mounting in-process is what makes this bundle installable from a registry:
+# no row names an absolute path, and `npx` is never used as an MCP stdio child
+# (on Windows that is a .cmd shim, which the client cannot spawn). The lanes are
+#   arya_desktop   node <package>/mcp/adapter-server.mjs
+#   arya_browser   node <package>/mcp/browser-launcher.mjs
+# with both paths derived from the installed package at runtime.
 - insert:
     - id: arya-computer-use
       name: '@konnectsuite/dsh-plugin-arya-computer-use'
       config: {}
-    # DEV row (private:true blocks npx until npm publish): absolute-path node
-    # invocation of the adapter. After publish, replace command/args with
-    #   command: npx / args: ['-y', '@konnectsuite/dsh-plugin-arya-computer-use@<ver>'].
-    - id: mcp-arya-desktop
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        serverName: arya_desktop
-        transport: stdio
-        command: node
-        args:
-          - 'C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-computer-use\mcp\adapter-server.mjs'
-        # No AGENT_DESKTOP_HOME override: the engine's default ~/.agent-desktop
-        # root carries its own protected DACL. AppData\Local roots fail the
-        # engine's private-file DACL check (inherited AppContainer ACEs).
-        toolCallTimeoutMs: 120000
-        failOnStartupError: true
-    # DEV row: run the pinned agent-browser from this checkout's node_modules
-    # directly. npx at startup does registry resolution that overruns the
-    # MCP client's initial connection window (observed: 'initial connection
-    # or tool synchronization failed. SdkError: Connection closed'). After
-    # npm publish, the npx form is acceptable for end users.
-    - id: mcp-arya-browser
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        serverName: arya_browser
-        transport: stdio
-        command: node
-        args:
-          - 'C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-computer-use\mcp\browser-launcher.mjs'
-        toolCallTimeoutMs: 120000
-        failOnStartupError: true

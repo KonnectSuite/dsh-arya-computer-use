@@ -18,9 +18,9 @@
 
 import z from '@deepseek-ai/schemastery';
 import os from 'node:os';
-import { readFile, readFileSync } from 'node:fs';
+import { readFile, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DEFAULT_SETTINGS, normalizeSettings, STOP_SHORTCUT_PATTERN, repairStaleSettings } from './mcp/settings.mjs';
 import { TakeoverControl, atomicJson } from './mcp/takeover.mjs';
 import { installActivity } from './mcp/activity.mjs';
@@ -38,6 +38,82 @@ const PLUGIN_VERSION = (() => {
   try { return JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).version ?? '0.0.0'; }
   catch { return '0.0.0'; }
 })();
+
+// The MCP servers are mounted in-process through the harness's own mcp-client
+// plugin (the same one a patch row names), so this bundle carries no absolute
+// paths and survives installation from a registry. Resolution order: an explicit
+// override, the profile's own resolution, then the running harness install.
+const HOST_DSH_ROOT = (() => {
+  try { return join(dirname(process.execPath), 'resources', 'app.asar', 'dsh'); }
+  catch { return null; }
+})();
+
+let mcpStatus = { mounted: false, servers: [], resolveErrors: [] };
+
+// Every place a host's mcp-client copy can live: the profile that installed us
+// (pnpm gives a registry install its peer link beside our own node_modules), the
+// running harness image, and a dev override. First hit wins.
+function mcpBridgeCandidates() {
+  const candidates = [];
+  if (process.env.ARYA_MCP_CLIENT_PATH) candidates.push(pathToFileURL(process.env.ARYA_MCP_CLIENT_PATH).href);
+  candidates.push('@deepseek-ai/dsh-mcp-client');
+  const suffix = join('node_modules', '@deepseek-ai', 'dsh-mcp-client', 'lib', 'index.js');
+  if (HOST_DSH_ROOT) candidates.push(pathToFileURL(join(HOST_DSH_ROOT, suffix)).href);
+  const home = os.homedir();
+  const roots = [join(HERE, suffix)];
+  try {
+    const profiles = join(home, '.aryacode', 'profiles');
+    for (const profile of readdirSync(profiles)) roots.push(join(profiles, profile, suffix));
+  } catch { /* no dev profiles on this host */ }
+  roots.push(join(home, '.aryacode', suffix));
+  for (const root of roots) candidates.push(pathToFileURL(root).href);
+  return candidates;
+}
+
+async function loadMcpBridge() {
+  const resolveErrors = [];
+  for (const specifier of mcpBridgeCandidates()) {
+    try {
+      const module = await import(specifier);
+      if (typeof module?.apply === 'function') return { bridge: module, resolveErrors };
+      resolveErrors.push(`${specifier}: no apply export`);
+    } catch (error) {
+      resolveErrors.push(`${specifier}: ${error?.code ?? error?.message ?? String(error)}`);
+    }
+  }
+  return { bridge: null, resolveErrors };
+}
+
+// One in-process mcp-client per lane. stdio transport with our own files, so
+// the same code path serves a checkout and a registry install.
+async function mountMcpServers(ctx) {
+  const { bridge, resolveErrors } = await loadMcpBridge();
+  if (!bridge) {
+    mcpStatus = { mounted: false, servers: [], resolveErrors };
+    ctx.logger.warn('dsh-arya-computer-use: could not resolve @deepseek-ai/dsh-mcp-client, no desktop or browser tools: %s', resolveErrors.join(' | '));
+    return mcpStatus;
+  }
+  const lanes = [
+    { serverName: 'arya_desktop', args: [join(HERE, 'mcp', 'adapter-server.mjs')] },
+    { serverName: 'arya_browser', args: [join(HERE, 'mcp', 'browser-launcher.mjs')] },
+  ];
+  for (const lane of lanes) {
+    try {
+      ctx.plugin(bridge, {
+        transport: 'stdio',
+        serverName: lane.serverName,
+        command: process.execPath,
+        args: lane.args,
+        toolCallTimeoutMs: 120000,
+        failOnStartupError: false,
+      });
+    } catch (error) {
+      resolveErrors.push(`${lane.serverName}: ${error?.message ?? String(error)}`);
+    }
+  }
+  mcpStatus = { mounted: true, servers: lanes.map(lane => lane.serverName), resolveErrors };
+  return mcpStatus;
+}
 
 // Control files shared with the MCP adapter: the adapter polls settings.json
 // for the behavior switches; the host publishes activity.json and TakeoverControl
@@ -120,6 +196,7 @@ Object.defineProperty(Config, '~standard', { value: { ...validation, validate(in
 
 export async function apply(ctx, config) {
   registerSkillProvider(ctx);
+  void mountMcpServers(ctx);
 
   const root = controlDir();
   const runtime = { configFile: join(root, 'settings.json'), stateFile: join(root, 'state.json'), activityFile: join(root, 'activity.json'), layoutFile: join(root, 'overlay-layout.json'), targetFile: join(root, 'target.json') };
@@ -240,6 +317,7 @@ export async function apply(ctx, config) {
       settings: desired,
       takeover: { running: !!takeover.child, paused: takeover.paused, seriesActive: takeover.seriesHeld, stoppedSeriesKey: takeover.stoppedSeriesKey },
       driver: activity?.active ? { sessionId: activity.sessionId, turn: activity.turn } : null,
+      mcp: mcpStatus,
       state: readJson(runtime.stateFile),
     });
   }

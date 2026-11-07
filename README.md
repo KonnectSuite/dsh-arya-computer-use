@@ -1,4 +1,4 @@
-﻿# Arya Computer Use
+# Arya Computer Use
 
 Computer use for [DeepSeek Harness / AryaCode](https://github.com/KonnectSuite): drive Windows desktop apps through **native accessibility refs** (UIA) instead of pixel coordinates, with a **takeover overlay** that frames the window being driven, shows what the agent is doing, keeps a synthetic ghost cursor where it acts (your own pointer is never followed), and stops on a global Esc. The agent calls itself **Arya** in that overlay by default, and the name is a setting.
 
@@ -55,9 +55,19 @@ locale/ icon.svg      Plugin Manager display metadata
 docs/PLAN.md          complete v1 plan
 ```
 
-## Install (dev, Phase 1+)
+## Install
 
-Not published to npm yet (`private: true`). Install from a local checkout with `plugin_manager` → `install_bundle` pointing at this directory. The `mcp-arya-desktop` row is currently in **dev form** (`command: node`, `args: [<absolute path to mcp/adapter-server.mjs>]`); after npm publish replace with `npx -y @konnectsuite/dsh-plugin-arya-computer-use@<version>`. Keep the checkout in place while the dev row is active.
+### From the plugin market (recommended)
+
+1. In AryaCode: **Plugins → Arya Plugin Market → add a source** and paste
+   `https://cdn.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json`
+2. Install **Arya Computer Use** from the list, then restart AryaCode.
+
+The published package is `@konnectsuite/dsh-plugin-arya-computer-use` (npm, public). Everything it needs ships in the tarball: the desktop adapter, the browser launcher, the takeover overlay sources and the skill. The two MCP lanes are mounted **in-process** by `index.js` (`ctx.plugin(<bridge>, …)`), so there are no absolute paths in the bundle patch and no `npx` child process — a 1.0.0 install works the same on any machine.
+
+### From a checkout (development)
+
+`plugin_manager` → `install_bundle` pointing at this directory. The bundle patch is a single row (`arya-computer-use`); the MCP lanes still mount in-process, so a checkout install and a registry install behave identically.
 
 ## Settings (Settings → Plugins → Computer Use)
 
