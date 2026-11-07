@@ -41,8 +41,17 @@
     "dsh": ">=0.2.1-rc.3 <0.3.0-0"
   },
   "dependencies": {
-    "agent-desktop": "1.2.0",
-    "agent-browser": "0.41.2"
+    "@deepseek-ai/schemastery": "^3.19.0",
+    "agent-browser": "0.41.2",
+    "agent-desktop": "1.2.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-mcp-client": ">=0.1.0-rc.2 || >=0.2.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-mcp-client": {
+      "optional": true
+    }
   },
   "dsh": {
     "bundle": {
@@ -50,7 +59,10 @@
     },
     "client": {
       "platform": "web",
-      "inject": ["@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-settings"]
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   }
 }
