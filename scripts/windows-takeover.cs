@@ -214,7 +214,7 @@ namespace DshTakeover {
     DateTime hideAt = DateTime.MaxValue;
     bool indicator = true, cursorIndicator = true, remoteVisible = true;
     int cursorError;
-    string text = "DSH 正在控制电脑", position = "top";
+    string text = "DSH is controlling your computer", position = "top";
     int idleMs = 800;
 
     internal Controller(string eventName, bool tests) {
@@ -297,7 +297,7 @@ namespace DshTakeover {
           bool nextIndicator = Get(command, "indicatorEnabled", true);
           ConfigureVisibility(Get(command,"remoteIndicatorVisible",true));
           cursorIndicator = Get(command, "cursorIndicatorEnabled", true);
-          string nextText = Get(command, "indicatorText", "DSH 正在控制电脑"), nextPosition = Get(command, "indicatorPosition", "top");
+          string nextText = Get(command, "indicatorText", "DSH is controlling your computer"), nextPosition = Get(command, "indicatorPosition", "top");
           bool rebuild = nextIndicator != indicator || nextText != text || nextPosition != position || frames.Count == 0;
           indicator = nextIndicator; text = nextText; position = nextPosition;
           idleMs = Math.Max(200, Math.Min(3000, Get(command, "indicatorIdleMs", 800)));
@@ -698,7 +698,7 @@ namespace DshTakeover {
     static string Readable(string text){
       text=(text??"").Replace("\r","");
       text=System.Text.RegularExpressions.Regex.Replace(text,@"(?m)^[ \t]*```[^\n]*\n?","");
-      text=System.Text.RegularExpressions.Regex.Replace(text,@"!\[([^\]\n]*)\]\([^)\n]*\)",match=>match.Groups[1].Value.Trim()==""?"（图片）":"（图片："+match.Groups[1].Value.Trim()+"）");
+      text=System.Text.RegularExpressions.Regex.Replace(text,@"!\[([^\]\n]*)\]\([^)\n]*\)",match=>match.Groups[1].Value.Trim()==""?"(image)":"(image: "+match.Groups[1].Value.Trim()+")");
       text=System.Text.RegularExpressions.Regex.Replace(text,@"\[([^\]\n]+)\]\([^)\n]*\)","$1");
       text=System.Text.RegularExpressions.Regex.Replace(text,@"(\*\*|__)(?=\S)(.+?)(?<=\S)\1","$2");
       text=System.Text.RegularExpressions.Regex.Replace(text,@"`([^`\n]+)`","$1");
@@ -713,27 +713,27 @@ namespace DshTakeover {
     void RevealResult(bool finished){
       if(!finished){revealedResult=false;return;}
       if(revealedResult||!followOutput)return;
-      int at=-1;for(int i=lines.Count-1;i>=0;i--)if(lines[i].heading&&lines[i].text=="回复"){at=i;break;}
+      int at=-1;for(int i=lines.Count-1;i>=0;i--)if(lines[i].heading&&lines[i].text=="Reply"){at=i;break;}
       if(at<0)return;
       revealedResult=true;
       if(TotalHeight-at*LineHeight>viewport.Height){scrollY=Math.Min(MaxScroll,at*LineHeight);followOutput=false;LayoutScrollbar();}
     }
-    // One heading per model step ("第 3 步 · 滚动页面"), then the text DSH showed
+    // One heading per model step ("Step 3 · scroll"), then the text DSH showed
     // for that step. Older steps keep only their last lines; the current step
     // and the reply are shown in full.
     static string StepHeading(Dictionary<string,object> entry){
       var labels=new List<string>();
-      foreach(var action in Items(entry,"actions")){string label=TextValue(action,"label");if(label!="")labels.Add(label+(TextValue(action,"state")=="error"?"（出错）":""));}
-      return "第 "+TextValue(entry,"step")+" 步"+(labels.Count>0?" · "+String.Join("、",labels.ToArray()):"");
+      foreach(var action in Items(entry,"actions")){string label=TextValue(action,"label");if(label!="")labels.Add(label+(TextValue(action,"state")=="error"?" (error)":""));}
+      return "Step "+TextValue(entry,"step")+(labels.Count>0?" · "+String.Join(", ",labels.ToArray()):"");
     }
     internal void UpdateProgress(Dictionary<string,object> data){
       string status=TextValue(data,"status");
       string step=TextValue(data,"step");if(step==""||step=="0")step="1";
       long started=Whole(data,"startedAt"),ended=Whole(data,"endedAt");
       bool finished=ended>0&&(status=="done"||status=="failed"||status=="stopped");
-      string took=started>0&&ended>=started?" · "+Math.Max(1,(long)Math.Round((ended-started)/1000.0))+" 秒":"";
-      if(finished)header=status=="done"?"DSH · 已完成 · "+step+" 步"+took:status=="failed"?"DSH · 出错 · 第 "+step+" 步":"DSH · 已停止 · 第 "+step+" 步";
-      else header="DSH · 第 "+step+" 步 · "+(status=="thinking"?"思考中":status=="acting"?"执行中":status=="replying"?"回复中":status=="stopped"?"已停止":"处理中");
+      string took=started>0&&ended>=started?" · "+Math.Max(1,(long)Math.Round((ended-started)/1000.0))+"s":"";
+      if(finished)header=status=="done"?"DSH · Done · "+step+" steps"+took:status=="failed"?"DSH · Error · step "+step:"DSH · Stopped · step "+step;
+      else header="DSH · Step "+step+" · "+(status=="thinking"?"thinking":status=="acting"?"acting":status=="replying"?"replying":status=="stopped"?"stopped":"working");
       string action=TextValue(data,"action");if(action=="")action=ToolLabel(TextValue(data,"tool"));
       subheader=finished?"":action;
       var steps=Items(data,"steps");var text=new List<string>();var heads=new List<string>();
@@ -742,32 +742,32 @@ namespace DshTakeover {
         // Summary mode: the AI summaries in order, newest last. Until the first
         // one arrives (or when the model is unavailable) the step names stand in.
         var summaries=Items(data,"summaries");string latest="";
-        foreach(var item in summaries){string value=Readable(TextValue(item,"text"));if(value==""||value==latest)continue;head(Flag(item,"final")?"AI 总结 · 结果":"AI 总结 · 第 "+TextValue(item,"step")+" 步");text.Add(value);latest=value;}
+        foreach(var item in summaries){string value=Readable(TextValue(item,"text"));if(value==""||value==latest)continue;head(Flag(item,"final")?"AI summary · result":"AI summary · step "+TextValue(item,"step"));text.Add(value);latest=value;}
         bool finalSummary=summaries.Count>0&&Flag(summaries[summaries.Count-1],"final");
         if(latest==""){
           foreach(var entry in steps)head(StepHeading(entry));
           string summaryStatus=TextValue(data,"summaryStatus");
-          text.Add(summaryStatus=="unavailable"?"总结暂不可用，先显示操作步骤。":finished?"正在总结结果…":"正在生成总结…");
+          text.Add(summaryStatus=="unavailable"?"Summary unavailable — showing the actions instead.":finished?"Summarizing the result…":"Generating a summary…");
         }
         string reply=Readable(steps.Count>0?TextValue(steps[steps.Count-1],"reply"):TextValue(data,"reply"));
-        if(finished&&!finalSummary&&reply!=""&&TextValue(data,"summaryStatus")!="working"){head("回复");text.Add(reply);}
+        if(finished&&!finalSummary&&reply!=""&&TextValue(data,"summaryStatus")!="working"){head("Reply");text.Add(reply);}
       } else if(steps.Count>0){
         int shown=Math.Max(0,steps.Count-12);
         for(int i=shown;i<steps.Count;i++){
           var entry=steps[i];bool current=i==steps.Count-1;head(StepHeading(entry));
           string reasoning=Readable(TextValue(entry,"reasoning")),reply=Readable(TextValue(entry,"reply"));
           if(reasoning!="")text.Add(current?reasoning:Shorten(reasoning,240));
-          if(reply!=""){head("回复");text.Add(reply);}
+          if(reply!=""){head("Reply");text.Add(reply);}
         }
       } else {
         string reasoning=Readable(TextValue(data,"reasoning")),reply=Readable(TextValue(data,"reply"));
-        if(reasoning!=""){head("思考");text.Add(reasoning);}
-        if(reply!=""){head("回复");text.Add(reply);}
+        if(reasoning!=""){head("Thinking");text.Add(reasoning);}
+        if(reply!=""){head("Reply");text.Add(reply);}
       }
-      bodyText=text.Count>0?String.Join("\n",text.ToArray()):"等待 DSH 输出…";headings=heads.ToArray();
+      bodyText=text.Count>0?String.Join("\n",text.ToArray()):"Waiting for DSH output…";headings=heads.ToArray();
       Content=header+"\n"+subheader+"\n\n"+bodyText;LayoutBody();RevealResult(finished);Present();
     }
-    static string ToolLabel(string tool){switch(tool){case "snapshot":return "读取页面内容";case "screenshot":return "截图查看";case "list_windows":return "查找浏览器或窗口";case "launch_app":return "打开应用或网页";case "scroll":return "滚动页面";case "click":return "点击";case "double_click":return "双击";case "keypress":return "按键";case "type_text":return "输入文字";case "set_value":return "填写或选择内容";case "wait":return "等待";case "wait_for":return "等待界面变化";case "batch":return "连续执行操作";case "focus":return "切换焦点";case "find":return "查找元素";case "invoke":return "操作控件";case "ocr":return "识别屏幕文字";default:return tool;}}
+    static string ToolLabel(string tool){switch(tool){case "snapshot":return "read the screen";case "screenshot":return "screenshot";case "list_windows":return "list windows";case "launch":return "open an app";case "scroll":return "scroll";case "click":return "click";case "set_value":return "set a value";case "type":return "type text";case "press":return "press keys";case "wait":return "wait";case "batch":return "run a batch";case "find":return "find a control";case "get":return "read a control";case "is":return "check a control";case "ocr":return "read screen text";default:return tool;}}
     // A dark halo under light text keeps it readable when a bright page shows
     // through the translucent background.
     static void Shadowed(Graphics g,string text,Font font,Brush brush,Brush shadow,RectangleF where,StringFormat format,float offset){
@@ -803,7 +803,7 @@ namespace DshTakeover {
           var clip=g.Save();g.SetClip(viewport);int first=scrollY/LineHeight,last=Math.Min(lines.Count,(scrollY+viewport.Height)/LineHeight+1);
           for(int i=first;i<last;i++){var line=lines[i];Font font=line.heading?headingFont:bodyFont;Brush brush=line.heading?muted:fg;float x=viewport.X,y=viewport.Y+i*LineHeight-scrollY;g.DrawString(line.text,font,shadow,new PointF(x+halo,y+halo),format);g.DrawString(line.text,font,brush,new PointF(x,y),format);}
           g.Restore(clip);
-          if(!Locked)Shadowed(g,hoverUnlocked?"拖标题移动 · 边缘缩放 · 移开后自动锁定":"拖标题移动 · 边缘缩放 · 滚动查看",footerFont,muted,shadow,new RectangleF(Px(12),Height-Px(22),Math.Max(10,Width-Px(24)),Px(20)),format,halo);
+          if(!Locked)Shadowed(g,hoverUnlocked?"drag the title to move · edges to resize · locks when idle":"drag the title to move · edges to resize · scroll to view",footerFont,muted,shadow,new RectangleF(Px(12),Height-Px(22),Math.Max(10,Width-Px(24)),Px(20)),format,halo);
         }
         // The translucent scrollbar appears only when there is more to read.
         if(MaxScroll>0){
@@ -1032,7 +1032,7 @@ namespace DshTakeover {
         using (var keyFont = new Font("Segoe UI",8.5f*scale,FontStyle.Bold,GraphicsUnit.Point))
         using (var hintFont = new Font("Microsoft YaHei UI",9.5f*scale,FontStyle.Regular,GraphicsUnit.Point))
         using (var measure = new StringFormat(StringFormat.GenericTypographic) { FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces }) {
-          const string hint = "停止";
+          const string hint = "Stop";
           float pillHeight=40*scale, padding=16*scale, dot=8*scale, gap=10*scale, keyHeight=20*scale;
           float keyWidth=g.MeasureString("Esc",keyFont,PointF.Empty,measure).Width+12*scale;
           float hintWidth=g.MeasureString(hint,hintFont,PointF.Empty,measure).Width;

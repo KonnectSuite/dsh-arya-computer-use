@@ -8,9 +8,9 @@ import { DEFAULT_SETTINGS, normalizeSettings } from './settings.mjs';
 export const STOPPED = 'COMPUTER_USE_STOPPED_BY_USER: The user stopped this operation series with Esc or their custom shortcut. Do not retry desktop input in this turn. A new user turn, including a request to continue, can use the desktop automatically; no settings change is required.';
 const helperScript = fileURLToPath(new URL('../scripts/windows-takeover.ps1', import.meta.url));
 // What "Open overlay to adjust" shows: the same layout as a real run.
-export const PREVIEW_PROGRESS = Object.freeze({ step: 2, status: 'acting', tool: 'scroll', action: '滚动页面', steps: [
-  { step: 1, actions: [{ label: '打开新标签页', state: 'done' }], reasoning: '这里按步骤显示 DSH 的思考文字，和对话里看到的一致。', reply: '' },
-  { step: 2, actions: [{ label: '滚动页面', state: 'running' }], reasoning: '正文较长时可以滚动查看；回到底部后继续跟随新输出。', reply: '' }] });
+export const PREVIEW_PROGRESS = Object.freeze({ step: 2, status: 'acting', tool: 'scroll', action: 'scroll the page', steps: [
+  { step: 1, actions: [{ label: 'open a new tab', state: 'done' }], reasoning: 'This is where DSH streams its thinking text, matching what you see in the chat.', reply: '' },
+  { step: 2, actions: [{ label: 'scroll the page', state: 'running' }], reasoning: 'Long pages can be scrolled; once at the bottom it keeps following new output.', reply: '' }] });
 
 // Windows refuses to replace a file that another process holds open without
 // delete sharing (a reader, an antivirus scan) for a moment, with EPERM, EACCES

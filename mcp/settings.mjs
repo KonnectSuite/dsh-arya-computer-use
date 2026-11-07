@@ -5,10 +5,10 @@
 export const DEFAULT_SETTINGS = Object.freeze({
   progressOverlayEnabled: true, progressOverlayMode: 'source',
   progressOverlayOpacity: 60, progressOverlayWidth: 360, progressOverlayHeight: 240, progressOverlayPosition: 'top-right', progressOverlayX: 80, progressOverlayY: 80, progressOverlayLocked: true, progressLockShortcut: '', progressPreviewToken: 0,
-  indicatorEnabled: true, cursorIndicatorEnabled: true, remoteIndicatorVisible: true, indicatorText: 'DSH 正在控制电脑',
+  indicatorEnabled: true, cursorIndicatorEnabled: true, remoteIndicatorVisible: true, indicatorText: 'DSH is controlling your computer',
   indicatorPosition: 'top', indicatorIdleMs: 800, stopShortcut: '',
   resumeToken: 0, previewToken: 0,
-  headedDefault: true, overlayDefault: true, driverLockEnabled: true,
+  headedDefault: false, overlayDefault: true, driverLockEnabled: true,
 });
 
 export const STOP_SHORTCUT_PATTERN = /^(?:(?:Ctrl\+)?(?:Alt\+)?(?:Shift\+)?(?:Win\+)?(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Pause|CapsLock|NumLock|ScrollLock))?$/;

@@ -11,9 +11,9 @@ window.__ModuleLoader__.load({
       progressOverlayWidth: 360, progressOverlayHeight: 240, progressOverlayPosition: 'top-right',
       progressOverlayX: 80, progressOverlayY: 80, progressOverlayLocked: true, progressLockShortcut: '',
       progressPreviewToken: 0, indicatorEnabled: true, cursorIndicatorEnabled: true,
-      remoteIndicatorVisible: true, indicatorText: 'DSH 正在控制电脑', indicatorPosition: 'top',
+      remoteIndicatorVisible: true, indicatorText: 'DSH is controlling your computer', indicatorPosition: 'top',
       indicatorIdleMs: 800, stopShortcut: '', resumeToken: 0, previewToken: 0,
-      headedDefault: true, overlayDefault: true, driverLockEnabled: true,
+      headedDefault: false, overlayDefault: true, driverLockEnabled: true,
     };
     const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
     const dictionaries = {
@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
         progressOpacity: '背景不透明度（%）', progressWidth: '宽度（像素）', progressHeight: '高度（像素）',
         progressPosition: '浮窗位置', progress_topRight: '右上', progress_topLeft: '左上', progress_bottomRight: '右下', progress_bottomLeft: '左下', progress_custom: '自定义',
         progressX: 'X 坐标', progressY: 'Y 坐标', progressShortcut: '浮窗解锁快捷键', progressShortcutHint: '按下后临时解锁浮窗以便拖动。留空表示不设置。',
-        behaviorTitle: '操作方式', headedDefault: '真实鼠标键盘', headedDefaultHint: '默认使用真实键鼠输入（会短暂聚焦目标窗口）；关闭后使用后台 UIA 输入，不碰你的鼠标。',
+        behaviorTitle: '操作方式', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: input goes through background accessibility patterns and never moves your pointer or steals focus. Turn on to use real keyboard/mouse input, which briefly focuses the target window.',
         overlayDefault: '显示鼠标标识', overlayDefaultHint: '接管时在鼠标位置显示标识（会话开始时生效）。',
         driverLock: '单会话驱动', driverLockHint: '同一时间只允许一个对话操作桌面；其他对话调用桌面工具会收到 BUSY 提示。关闭后最近使用的对话自动接管。',
         stop: '停止与恢复', escTitle: '按 Esc 停止操作', escAlways: 'Esc 始终可用',
@@ -70,7 +70,7 @@ window.__ModuleLoader__.load({
         progressOpacity: 'Background opacity (%)', progressWidth: 'Width (px)', progressHeight: 'Height (px)',
         progressPosition: 'Overlay position', progress_topRight: 'Top right', progress_topLeft: 'Top left', progress_bottomRight: 'Bottom right', progress_bottomLeft: 'Bottom left', progress_custom: 'Custom',
         progressX: 'X coordinate', progressY: 'Y coordinate', progressShortcut: 'Overlay unlock shortcut', progressShortcutHint: 'Press to temporarily unlock the overlay so you can drag it. Empty means none.',
-        behaviorTitle: 'Control style', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Type uses real keyboard/mouse input (briefly focusing the target window); turn off for background UIA input that never touches your pointer.',
+        behaviorTitle: 'Control style', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: input goes through background accessibility patterns and never moves your pointer or steals focus. Turn on to use real keyboard/mouse input, which briefly focuses the target window.',
         overlayDefault: 'Show the pointer marker', overlayDefaultHint: 'Mark the pointer during takeover (applies at the next session start).',
         driverLock: 'One conversation drives at a time', driverLockHint: 'While one conversation is driving, desktop calls from other conversations receive a BUSY notice. Turn off to let the most recent conversation take over automatically.',
         stop: 'Stop and resume', escTitle: 'Press Esc to stop', escAlways: 'Esc always works',

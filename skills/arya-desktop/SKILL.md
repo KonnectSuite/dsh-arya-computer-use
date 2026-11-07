@@ -19,7 +19,8 @@ Screenshots are evidence, not input.
    first contact.
 2. **Act** — one action on one ref: `click`, `set_value`, `type`, `press`,
    `scroll`. Prefer `set_value` for edits (no keystrokes); `type` for editors
-   that reject SetValue (it is auto-headed — keystroke synthesis).
+   that reject SetValue (background accessibility input by default; real
+   keystrokes only when the headed toggle is on).
 3. **Verify** — re-`snapshot` (or `get`/`is` on the ref). The envelope tells
    you what happened:
    - `delivered_verified` — confirmed by readback.
@@ -38,11 +39,13 @@ Screenshots are evidence, not input.
   observes once).
 - **Elevation.** This host must run as Administrator. If you see
   `lease_directory_untrusted`, tell the user: restart AryaCode as Administrator.
-- **Headed toggle.** Default is headless (no mouse/keyboard takeover). When
-  headless cannot do the job (cursor-moving input, notifications, start menu,
-  tray), call `tools {operation:"headed",on:true}` for this conversation, then
-  `on:false` when done. The user sees a presentation cursor (overlay) — it is
-  the "separate mouse"; it does not steal their real cursor.
+- **Headed toggle.** Default is headless (no mouse/keyboard takeover): semantic
+  UIA input goes straight to the control and never moves the user's pointer.
+  When headless cannot do the job (cursor-moving input, notifications, start
+  menu, tray, surfaces that reject background input), call
+  `tools {operation:"headed",on:true}` for this conversation, then `on:false`
+  when done. Headed input briefly focuses the target window and drives the real
+  keyboard/mouse, so warn the user before switching it on.
 - **Launch.** Bare names resolve only under System32 (`notepad` works,
   `chrome` does not). Use the absolute exe path. If many instances run, the
   engine refuses to guess — that is correct; ask the user.

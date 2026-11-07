@@ -49,7 +49,7 @@ const state = {
   sessionStarted: false,
   headedOverride: null, // tools {operation:'headed'} per-conversation toggle
   overlayOverride: null,
-  headedDefault: true,
+  headedDefault: false,
   overlayDefault: true,
 };
 const effectiveHeaded = () => state.headedOverride ?? state.headedDefault;
@@ -194,7 +194,7 @@ const TOOLS = [
   tool('is', 'Check one control: visible|enabled|checked|focused|expanded|selected.', { ref_id: str, property: str }),
   tool('click', 'Press a control via its semantic action (no pixels). Verify by re-snapshot.', { ref_id: str, timeout_ms: int }),
   tool('set_value', 'Set a control value via UIA SetValue (no keystrokes). Some edits reject this — use type.', { ref_id: str, value: str, timeout_ms: int }),
-  tool('type', 'Type keystrokes into a text target (auto-headed: keystroke synthesis needs the headed lane).', { ref_id: str, text: str, interval_ms: int, timeout_ms: int }),
+  tool('type', 'Type keystrokes into a text target. Background accessibility input by default; with headed on it briefly focuses the window and uses real keystrokes.', { ref_id: str, text: str, interval_ms: int, timeout_ms: int }),
   tool('press', 'Send a key chord (e.g. ctrl+s) to an app/window. Foreground queue: for non-frontmost apps expect delivered_unverified.', { combo: str, app: str, window_id: str, force: bool }),
   tool('scroll', 'Scroll a scrollable control: direction up|down|left|right, amount in lines.', { ref_id: str, direction: str, amount: int, timeout_ms: int }),
   tool('list_windows', 'List top-level windows (ids, titles, pids, responsiveness).', { app: str, timeout_ms: int }),
@@ -285,7 +285,7 @@ async function callTool(name, args = {}) {
     case 'launch':
       return enqueue(async () => parseEnvelope(await runCli(['launch', args.app, ...flagArgs([['--args', args.args], ['--cwd', args.cwd], ['--activate', args.activate], ['--timeout-ms', args.timeout_ms]])])));
     case 'wait':
-      return enqueue(async () => parseEnvelope(await runCli(['wait', ...flagArgs([['--ms', args.ms], ['--app', args.app], ['--window', args.window], ['--element', args.element], ['--text', args.text], ['--timeout', args.timeout_ms]])])));
+      return enqueue(async () => parseEnvelope(await runCli(['wait', ...(args.ms === undefined || args.ms === null ? [] : [String(args.ms)]), ...flagArgs([['--app', args.app], ['--window', args.window], ['--element', args.element], ['--text', args.text], ['--timeout', args.timeout_ms]])])));
     case 'screenshot':
       return enqueue(async () => {
         await ensureSession();
@@ -418,7 +418,7 @@ const INSTRUCTIONS = [
   'Arya Computer Use: drive Windows apps through semantic UIA refs, not pixels.',
   'Loop: snapshot (skeleton/compact first) -> act on @refs -> re-snapshot to verify.',
   'Refs go stale after window changes: on STALE_REF/AMBIGUOUS_TARGET, re-snapshot.',
-  'type follows the headed setting (default: real keyboard/mouse; tools {operation:"headed",on:false} for background UIA input, on:true to force it).',
+  'type uses background accessibility input by default and never moves the pointer; tools {operation:"headed",on:true} switches this conversation to real keyboard/mouse input when a surface needs it.',
   'Chromium windows settle slowly: snapshot with timeout_ms 10000-25000.',
   'Verify stateful actions by re-read; delivered_verified = confirmed, delivered_unverified retry:unsafe = do not blind-repeat.',
   'On ACTION_FAILED post_action_verification the action landed: read data.post_state, do NOT retry.',
