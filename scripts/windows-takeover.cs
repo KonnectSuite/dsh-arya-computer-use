@@ -197,6 +197,10 @@ namespace DshTakeover {
     ProgressFrame progress;
     PointerWatch pointerWatch;
     Native.Point? testOverlayCursor;
+    Rectangle? targetWindow;
+    Native.Point? ghostPoint;
+    Native.Point ghostActual;
+    bool ghostPlaced;
     DateTime progressPreviewUntil=DateTime.MinValue;
     bool progressDismissed,progressCloseWhenIdle;
     bool progressSettingEnabled=true;
@@ -286,6 +290,11 @@ namespace DshTakeover {
     static T Get<T>(Dictionary<string,object> command, string name, T fallback) {
       object value; return command.TryGetValue(name, out value) ? (T)Convert.ChangeType(value, typeof(T)) : fallback;
     }
+    static int Int(Dictionary<string,object> map, string name) {
+      object value;
+      if (map == null || !map.TryGetValue(name, out value) || value == null) return 0;
+      return (int)Math.Round(Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture));
+    }
     void Dispatch(Dictionary<string,object> command) {
       object id; command.TryGetValue("id", out id);
       try {
@@ -307,6 +316,25 @@ namespace DshTakeover {
           else if (rebuild&&!displaysRebuilt) { HideFrames(); ShowFrames(); }
           else foreach (var frame in frames) frame.Present(255);
           UpdatePointer(255);
+        } else if (action == "hint") {
+          // Where the harness is acting: the target window rect and the ghost
+          // pointer position. Both are re-sent as the drive moves.
+          object supplied;
+          bool changed = false;
+          if (command.TryGetValue("target", out supplied)) {
+            var map = supplied as Dictionary<string,object>;
+            Rectangle? next = map != null && Int(map,"width") > 0 && Int(map,"height") > 0
+              ? new Rectangle(Int(map,"left"), Int(map,"top"), Int(map,"width"), Int(map,"height"))
+              : (Rectangle?)null;
+            if (next != targetWindow) { targetWindow = next; changed = true; }
+          }
+          if (command.TryGetValue("pointer", out supplied)) {
+            var map = supplied as Dictionary<string,object>;
+            ghostPoint = map == null ? (Native.Point?)null : new Native.Point(Int(map,"x"), Int(map,"y"));
+          }
+          if (changed && armed && !paused && indicator) { HideFrames(); ShowFrames(); }
+          if (armed && !paused && cursorIndicator) UpdatePointer(255);
+          Emit(new { id = id, ok = true, target = changed, ghost = ghostPoint.HasValue });
         } else if (action == "progress") {
           bool enabled=Get(command,"enabled",false),preview=Get(command,"preview",false);
           object settingsObject;var presentedSettings=command.TryGetValue("settings",out settingsObject)?settingsObject as Dictionary<string,object>:null;
@@ -462,20 +490,46 @@ namespace DshTakeover {
       cancel.Set(); paused = true; armed = false; hideAt = DateTime.MaxValue; HideFrames(); HidePointer();
       Emit(new { kind = "stopped", reason = reason });
     }
+    // The highlight marks the application window the harness is driving, so one
+    // rim frames the app instead of every monitor's edge. Without a target window
+    // (nothing driven yet) the overlay falls back to the display edges.
     void ShowFrames() {
+      var target = targetWindow;
+      if (target.HasValue && target.Value.Width >= 80 && target.Value.Height >= 80) {
+        var rim = Rectangle.Inflate(target.Value, 2, 2);
+        var center = new Native.Point(rim.X + rim.Width / 2, rim.Y + rim.Height / 2);
+        Rectangle screen = Native.DisplayFromPoint(center);
+        int band = Math.Max(44, (int)Math.Round(76 * Math.Max(1f, Math.Min(2f, rim.Width / 1920f))));
+        Rectangle surface = rim; string pill = position;
+        if (pill != "bottom" && rim.Y - band >= screen.Top) surface = new Rectangle(rim.X, rim.Y - band, rim.Width, rim.Height + band);
+        else if (pill == "bottom" || rim.Bottom + band <= screen.Bottom) surface = new Rectangle(rim.X, rim.Y, rim.Width, rim.Height + band);
+        var frame = new Frame(surface, rim, text, pill, remoteVisible);
+        frames.Add(frame); frame.Show(); frame.Present(255);
+        return;
+      }
       foreach (var bounds in displays) { var frame = new Frame(bounds, text, position,remoteVisible); frames.Add(frame); frame.Show(); frame.Present(255); }
     }
     void HideFrames() { foreach (var frame in frames) frame.Dispose(); frames.Clear(); }
+    // A synthetic cursor: the harness names where it acted and this draws the
+    // ghost there. The user's real pointer is never read, moved or highlighted.
     void UpdatePointer(byte alpha) {
       if (!armed || paused || !cursorIndicator) { HidePointer(); return; }
-      Native.Point point;
-      if(testMode&&testPointerPoint.HasValue)point=testPointerPoint.Value;
-      else if (!Native.GetCursorPos(out point)) { cursorError=Marshal.GetLastWin32Error(); HidePointer(); return; }
+      Native.Point goal;
+      if(testMode&&testPointerPoint.HasValue)goal=testPointerPoint.Value;
+      else if (ghostPoint.HasValue) goal = ghostPoint.Value;
+      else { HidePointer(); return; }
+      if (!ghostPlaced) { ghostActual = goal; ghostPlaced = true; }
+      else {
+        int dx = goal.x - ghostActual.x, dy = goal.y - ghostActual.y;
+        if (Math.Abs(dx) <= 2 && Math.Abs(dy) <= 2) ghostActual = goal;
+        else ghostActual = new Native.Point(ghostActual.x + (int)Math.Round(dx * 0.4), ghostActual.y + (int)Math.Round(dy * 0.4));
+      }
+      Native.Point point = ghostActual;
       cursorError=0;
       if (pointer == null) { pointer = new PointerFrame(remoteVisible); pointer.Update(point, alpha); pointer.Show(); }
       else pointer.Update(point, alpha);
     }
-    void HidePointer() { if (pointer != null) { pointer.Dispose(); pointer = null; } }
+    void HidePointer() { if (pointer != null) { pointer.Dispose(); pointer = null; } ghostPlaced = false; }
     void CloseProgress() {
       progressCloseWhenIdle=false;
       if(progress!=null){progress.Dispose();progress=null;}
@@ -951,7 +1005,22 @@ namespace DshTakeover {
         // A soft spotlight under the tip instead of a hard ring.
         using(var spot=new GraphicsPath()) {
           spot.AddEllipse(x-16,y-16,32,32);
-          using(var glow=new PathGradientBrush(spot) { CenterColor=Color.FromArgb(120,86,134,254), SurroundColors=new[] { Color.FromArgb(0,86,134,254) } }) g.FillPath(glow,spot);
+          using(var glow=new PathGradientBrush(spot) { CenterColor=Color.FromArgb(150,86,134,254), SurroundColors=new[] { Color.FromArgb(0,86,134,254) } }) g.FillPath(glow,spot);
+        }
+        // The synthetic cursor itself: a collaborative-style arrow whose tip sits
+        // on the acted control. The user's own pointer is never drawn or followed.
+        using(var arrow=new GraphicsPath()) {
+          const float k=1.7f;
+          arrow.AddPolygon(new[] {
+            new PointF(x,y), new PointF(x,y+15.5f*k), new PointF(x+4.2f*k,y+11.6f*k),
+            new PointF(x+7.1f*k,y+18.2f*k), new PointF(x+10.2f*k,y+16.8f*k), new PointF(x+7.3f*k,y+10.3f*k),
+            new PointF(x+12.6f*k,y+10.1f*k)
+          });
+          using(var shadow=new SolidBrush(Color.FromArgb(70,0,0,0))) {
+            g.TranslateTransform(1.6f,1.8f);g.FillPath(shadow,arrow);g.TranslateTransform(-1.6f,-1.8f);
+          }
+          using(var fill=new SolidBrush(Color.FromArgb(255,255,255,255))) g.FillPath(fill,arrow);
+          using(var edge=new Pen(Color.FromArgb(255,57,100,254),1.8f)) g.DrawPath(edge,arrow);
         }
         // A solid name tag just past the arrow, like collaborative cursors.
         using(var font=new Font("Segoe UI",10,FontStyle.Bold,GraphicsUnit.Pixel))
@@ -985,13 +1054,20 @@ namespace DshTakeover {
 
   internal sealed class Frame : Form {
     readonly Rectangle rectangle;
+    readonly Rectangle rim;
     bool remoteVisible;
     IntPtr dc, bitmap, previous;
-    internal Frame(Rectangle bounds, string text, string position,bool visible) {
-      remoteVisible=visible;rectangle = bounds; AutoScaleMode=AutoScaleMode.None;FormBorderStyle = FormBorderStyle.None;
+    internal Frame(Rectangle bounds, string text, string position,bool visible)
+      : this(bounds, new Rectangle(0,0,bounds.Width,bounds.Height), text, position, visible) { }
+    // surface is the window that spans the app plus the pill band; rim is the
+    // app window itself, expressed in absolute screen coordinates.
+    internal Frame(Rectangle bounds, Rectangle rimBounds, string text, string position, bool visible) {
+      remoteVisible=visible;rectangle = bounds;
+      rim = new Rectangle(rimBounds.X - bounds.X, rimBounds.Y - bounds.Y, rimBounds.Width, rimBounds.Height);
+      AutoScaleMode=AutoScaleMode.None;FormBorderStyle = FormBorderStyle.None;
       ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
       Bounds=bounds;
-      using (var image = Draw(bounds.Width, bounds.Height, text, position)) bitmap = image.GetHbitmap(Color.FromArgb(0));
+      using (var image = Draw(bounds.Width, bounds.Height, rim, text, position)) bitmap = image.GetHbitmap(Color.FromArgb(0));
       dc = Native.CreateCompatibleDC(IntPtr.Zero); previous = Native.SelectObject(dc, bitmap);
     }
     protected override bool ShowWithoutActivation { get { return true; } }
@@ -1011,6 +1087,11 @@ namespace DshTakeover {
       if (!Native.UpdateLayeredWindow(Handle, IntPtr.Zero, ref destination, ref size, dc, ref origin, 0, ref blend, 2)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Could not present takeover overlay");
     }
     internal static Bitmap Draw(int width, int height, string text, string position) {
+      return Draw(width, height, new Rectangle(0,0,width,height), text, position);
+    }
+    // rim is the rectangle the glow outlines, in surface coordinates. The pill
+    // prefers the free band above the rim, then below, and only then goes inside.
+    internal static Bitmap Draw(int width, int height, Rectangle rim, string text, string position) {
       var image = new Bitmap(width,height,PixelFormat.Format32bppPArgb);
       using (var g = Graphics.FromImage(image)) {
         g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -1022,9 +1103,10 @@ namespace DshTakeover {
         // DeepSeek-blue falloff that reads on light ones.
         g.CompositingMode = CompositingMode.SourceCopy;
         int core = (int)Math.Round(2*scale), glow = core+(int)Math.Round(18*scale);
+        glow = Math.Max(core + 1, Math.Min(glow, Math.Max(4, Math.Min(rim.Width, rim.Height) / 2 - 1)));
         for (int i=0;i<glow;i++) {
           var color = i<core ? Color.FromArgb(235,150,184,255) : Color.FromArgb((int)(175*Math.Pow(1-(i-core)/(double)(glow-core),2.2)),77,124,254);
-          using (var pen = new Pen(color,1)) g.DrawRectangle(pen,i,i,width-2*i-1,height-2*i-1);
+          using (var pen = new Pen(color,1)) g.DrawRectangle(pen, rim.X+i, rim.Y+i, rim.Width-2*i-1, rim.Height-2*i-1);
         }
         g.CompositingMode = CompositingMode.SourceOver;
         // Status pill: live dot, the user's text, then an Esc keycap.
@@ -1039,7 +1121,15 @@ namespace DshTakeover {
           float fixedWidth=padding*2+dot+gap*3+1+keyWidth+6*scale+hintWidth;
           float textWidth=Math.Min(g.MeasureString(text,font,PointF.Empty,measure).Width,Math.Max(48*scale,width-48*scale-fixedWidth));
           float pillWidth=fixedWidth+textWidth;
-          float x=(float)Math.Round((width-pillWidth)/2), y=position=="bottom"?height-pillHeight-24*scale:24*scale, middle=y+pillHeight/2;
+          float above=rim.Y-pillHeight-10*scale, below=rim.Bottom+10*scale;
+          bool fitsAbove=above>=4*scale, fitsBelow=below+pillHeight<=height-4*scale;
+          float y = position=="bottom"
+            ? (fitsBelow?below:(fitsAbove?above:rim.Y+24*scale))
+            : (fitsAbove?above:(fitsBelow?below:rim.Y+24*scale));
+          float x=(float)Math.Round(rim.X+(rim.Width-pillWidth)/2);
+          if (x < 4*scale) x = 4*scale;
+          if (x + pillWidth > width - 4*scale) x = Math.Max(4*scale, width - 4*scale - pillWidth);
+          float middle=y+pillHeight/2;
           for (int i=1;i<=6;i++)
             using (var shadow=Rounded(new RectangleF(x-i,y-i+2*scale,pillWidth+2*i,pillHeight+2*i),pillHeight/2+i))
             using (var brush=new SolidBrush(Color.FromArgb(9,0,0,0))) g.FillPath(brush,shadow);

@@ -17,7 +17,7 @@ import { createInterface } from 'node:readline';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +40,9 @@ mkdirSync(SHOTS_DIR, { recursive: true });
 // 'arya-computer-use' → index.js writes it here). The adapter polls it so
 // changes apply to the next call without restarting the MCP connection.
 const SETTINGS_FILE = join(PLUGIN_DIR, 'control', 'settings.json');
+// The overlay host reads this to frame the app window that is being driven and
+// to place the ghost cursor where the harness acts — never the real pointer.
+const TARGET_FILE = join(PLUGIN_DIR, 'control', 'target.json');
 
 const VERSION = '0.1.0';
 const MAX_BATCH = 20;
@@ -51,6 +54,7 @@ const state = {
   overlayOverride: null,
   headedDefault: false,
   overlayDefault: true,
+  windowId: null,
 };
 const effectiveHeaded = () => state.headedOverride ?? state.headedDefault;
 const effectiveOverlay = () => state.overlayOverride ?? state.overlayDefault;
@@ -64,6 +68,84 @@ setInterval(() => {
     // Settings file not written yet (plugin not loaded): keep the defaults.
   }
 }, 1000).unref();
+
+/* ------------------------------------------------------- overlay target */
+
+// The overlay frames the app window that is being driven and puts the ghost
+// cursor where the harness acts. Both come from what the engine reports, so the
+// user's own pointer is never read, moved or highlighted.
+const windowBounds = new Map(); // window id -> {left, top, width, height}
+let windowBoundsAt = 0;
+
+function rememberWindows(data) {
+  const list = Array.isArray(data) ? data : Array.isArray(data?.windows) ? data.windows : data?.window ? [data.window] : [];
+  for (const window of list) rememberWindow(window);
+}
+
+function rememberWindow(window) {
+  if (!window || !window.id || !window.bounds) return null;
+  const b = window.bounds;
+  const rect = { left: Number(b.x), top: Number(b.y), width: Number(b.width), height: Number(b.height) };
+  if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return null;
+  windowBounds.set(window.id, rect);
+  return rect;
+}
+
+async function windowRectFor(id) {
+  if (!id) return null;
+  const cached = windowBounds.get(id);
+  if (cached) return cached;
+  if (Date.now() - windowBoundsAt < 2000) return null;
+  try {
+    const envelope = parseEnvelope(await runCli(['list-windows']));
+    if (envelope?.ok) {
+      rememberWindows(envelope.data);
+      windowBoundsAt = Date.now();
+    }
+  } catch { /* the hint is optional */ }
+  return windowBounds.get(id) ?? null;
+}
+
+async function elementPoint(ref) {
+  try {
+    const envelope = parseEnvelope(await runCli(['get', ref, ...flagArgs([['--property', 'bounds']])]));
+    const value = envelope?.data?.value;
+    if (!value) return null;
+    const x = Number(value.x), y = Number(value.y), width = Number(value.width), height = Number(value.height);
+    if (![x, y, width, height].every(Number.isFinite)) return null;
+    return { x: Math.round(x + width / 2), y: Math.round(y + height / 2) };
+  } catch { return null; }
+}
+
+function writeTarget(window, pointer) {
+  try {
+    const payload = JSON.stringify({ window: window ?? null, pointer: pointer ?? null, at: Date.now() });
+    if (payload === state.lastTarget) return;
+    state.lastTarget = payload;
+    mkdirSync(dirname(TARGET_FILE), { recursive: true });
+    const temp = `${TARGET_FILE}.${process.pid}.tmp`;
+    writeFileSync(temp, payload);
+    renameSync(temp, TARGET_FILE);
+  } catch { /* the overlay is optional */ }
+}
+
+async function noteTarget(name, args, result) {
+  const envelope = result?.structuredContent ?? (result && typeof result === 'object' && 'ok' in result ? result : null);
+  const data = envelope?.ok === true ? envelope.data : null;
+  if (name === 'launch' && data?.window) {
+    rememberWindow(data.window);
+    if (data.window.id) state.windowId = data.window.id;
+  }
+  if (name === 'list_windows') rememberWindows(data);
+  if (name === 'snapshot') rememberWindows(data);
+  if (args?.window_id) state.windowId = args.window_id;
+  if (!state.windowId) return;
+  const window = await windowRectFor(state.windowId);
+  const ref = args?.ref_id ?? data?.match?.ref_id ?? null;
+  let pointer = ref ? await elementPoint(ref) : null;
+  if (!pointer && window) pointer = { x: Math.round(window.left + window.width / 2), y: Math.round(window.top + window.height / 2) };
+  writeTarget(window, pointer);
+}
 
 /* ------------------------------------------------------------------ CLI */
 
@@ -475,6 +557,10 @@ rl.on('line', (line) => {
     const args = params?.arguments ?? {};
     Promise.resolve()
       .then(() => callTool(name, args))
+      .then(async (out) => {
+        try { await noteTarget(name, args, out); } catch { /* overlay hint only */ }
+        return out;
+      })
       .then((out) => reply(id, Array.isArray(out?.content) ? out : envelopeResult(out)))
       .catch((error) => reply(id, { content: [{ type: 'text', text: `adapter error: ${error?.message || error}` }], isError: true }));
     return;

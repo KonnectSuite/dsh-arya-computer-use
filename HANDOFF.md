@@ -57,3 +57,24 @@ Context mgmt: compress aggressively (context limit hit 2026-11-07 01:10); blocks
   off wrote `headedDefault: false` into control/settings.json and the profile entry config).
 - Esc/resume still need a real hardware keypress to verify: injected keys are ignored on purpose
   (windows-takeover.cs `if (injected) return false;`).
+## 2026-11-07 (later) — window-scoped highlight + ghost cursor
+
+Ask (m01996): highlight only the app window being driven, and give the harness its own cursor
+instead of decorating the user's pointer.
+
+- **The rim frames one window.** `Frame` now takes the window rect plus a surface rect that grows a
+  pill band above (or below, when the window touches the monitor top). The band carries the banner
+  and "Esc / Stop"; the glow follows the window rect, not the monitor edges. The per-display edge
+  glow survives only as the fallback used while no target window is known.
+- **The overlay never reads the real pointer.** `PointerFrame` draws a synthetic arrow plus the
+  "DSH" tag at a point the harness supplies, easing toward it; `GetCursorPos` is no longer called by
+  the indicator at all, so the user's cursor is neither followed nor highlighted.
+- **New `hint` command** (takeover -> overlay): `{target:{left,top,width,height}|null, pointer:{x,y}|null}`.
+  `mcp/takeover.mjs` reads `control/target.json` and sends a hint whenever it changes; the overlay
+  re-frames on a target change and re-aims the ghost on a pointer change.
+- **`control/target.json` is written by the adapter** (`noteTarget`): it caches window rects from
+  `launch` / `list_windows` / `snapshot`, resolves an acted control's centre with
+  `get <ref> --property bounds`, and falls back to the window centre. `list-windows` returns a bare
+  array in `data` (not `{windows: […]}`) — remember that when reading engine output.
+- Verified live: rim on the Notepad window only, English banner above it, ghost arrow at the driven
+  control's centre, and every action reporting `mechanism: semantic_api` (no pointer input).

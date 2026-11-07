@@ -137,3 +137,14 @@ Overlay cost: ~355 ms per headless action (click 427→782 ms). Setting default:
 2. Cursor overlay default ON (visibility) vs OFF (speed)?
 3. ~~Lite list confirmation (14 tools above)?~~ **RESOLVED 2026-11-07**: Lite 16 shipped in adapter — `snapshot, find, get, is, click, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools`.
 4. Publish to public npm, or GitHub-install only?
+
+### Overlay behaviour (2026-11-07)
+
+- The takeover overlay frames **the app window being driven**, not the monitor edges: `Frame` receives
+  the window rect and a surface that grows a pill band above (or below when the window sits at the
+  monitor top). Monitor-edge glow remains only as the fallback when no target window is known.
+- The pointer indicator is a **ghost cursor**: a synthetic arrow plus a "DSH" tag drawn where the
+  harness acts (element centre from `get <ref> --property bounds`, else the window centre). The real
+  cursor is never read, moved or highlighted; background actions report `mechanism: semantic_api`.
+- Channel: adapter writes `control/target.json` -> `mcp/takeover.mjs` sends the `hint` command ->
+  overlay re-frames / re-aims. `list-windows` returns a bare array in `data`.

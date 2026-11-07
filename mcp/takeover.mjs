@@ -46,10 +46,11 @@ export function atomicJson(file, value) {
 
 export class TakeoverControl {
   constructor({ powershell = 'powershell.exe', onStop = () => {}, configFile = process.env.ARYA_CONFIG_FILE,
-    stateFile = process.env.ARYA_STATE_FILE, activityFile=process.env.ARYA_ACTIVITY_FILE,testMode = false, config = {} } = {}) {
+    stateFile = process.env.ARYA_STATE_FILE, activityFile=process.env.ARYA_ACTIVITY_FILE,targetFile=process.env.ARYA_TARGET_FILE,testMode = false, config = {} } = {}) {
     this.powershell = powershell; this.onStop = onStop; this.configFile = configFile; this.stateFile = stateFile;
     this.testMode = testMode; this.config = normalizeSettings(config); this.active = 0; this.shown = 0; this.paused = false;
     this.layoutFile=process.env.ARYA_LAYOUT_FILE;
+    this.targetFile=targetFile;
     this.progressPreviewToken=this.config.progressPreviewToken;
     this.activityFile=activityFile;this.seriesHeld=false;this.seriesIndicator=false;this.seriesKey=null;this.stoppedSeriesKey=null;this.blockedSeries=new Map();
     this.eventName = `Local\\DSH-ARYA-${randomUUID()}`; this.waiters = new Map(); this.nextId = 0;
@@ -71,6 +72,20 @@ export class TakeoverControl {
   persist(reason) {
     atomicJson(this.stateFile, { paused: this.paused, active: this.active, seriesActive:this.seriesHeld,reason: reason ?? null,
       resumeToken: this.resumeToken,stoppedSeriesKey:this.stoppedSeriesKey,blockedSeries:Object.fromEntries(this.blockedSeries),pauseMessage: this.paused ? this.pauseMessage : null, updatedAt: new Date().toISOString() });
+  }
+  // What the overlay should frame: the app window being driven, and where the
+  // harness acted (its ghost cursor). Written by the MCP adapter after each call.
+  readTarget() {
+    let raw = null;
+    try { raw = JSON.parse(readFileSync(this.targetFile, 'utf8')); } catch { raw = null; }
+    const window = raw?.window, pointer = raw?.pointer;
+    const rect = window && Number.isFinite(window.width) && Number.isFinite(window.height) && window.width > 0 && window.height > 0
+      ? { left: Math.round(window.left), top: Math.round(window.top), width: Math.round(window.width), height: Math.round(window.height) }
+      : null;
+    const point = pointer && Number.isFinite(pointer.x) && Number.isFinite(pointer.y)
+      ? { x: Math.round(pointer.x), y: Math.round(pointer.y) }
+      : null;
+    return { target: rect, pointer: point };
   }
   async resumeOperation(clearScope=true){
     if(this.child)await this.command('resume');
@@ -120,6 +135,12 @@ export class TakeoverControl {
       await this.command(((this.seriesHeld&&this.seriesIndicator)||this.shown>0)&&!this.paused&&!this.blockedSeries.has(this.seriesKey)?'begin':'configure', this.config);
       this.sentPresentation=presentation;
       this.sentShortcut = this.config.stopShortcut; this.sentCursorIndicator = this.config.cursorIndicatorEnabled;this.sentRemoteVisible=this.config.remoteIndicatorVisible;
+      // A new overlay host paints nothing until it is told where to look.
+      this.sentTarget=null;
+    }
+    if (this.targetFile && this.child) {
+      const hint=this.readTarget();
+      if(hint!==this.sentTarget){await this.command('hint',hint);this.sentTarget=hint;}
     }
     if (this.config.resumeToken !== this.resumeToken && this.active === 0) {
       if (this.child) await this.command('resume');

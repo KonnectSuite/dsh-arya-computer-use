@@ -62,8 +62,8 @@ const fields = {
   progressOverlayLocked: z.boolean().default(true).description('Lock overlay and pass through input'),
   progressLockShortcut: z.string().pattern(STOP_SHORTCUT_PATTERN).default('').description('Overlay lock shortcut'),
   progressPreviewToken: z.number().min(0).default(0),
-  indicatorEnabled: z.boolean().default(true).description('Takeover indicator'),
-  cursorIndicatorEnabled: z.boolean().default(true).description('Pointer indicator'),
+  indicatorEnabled: z.boolean().default(true).description('Frame the app window the agent drives'),
+  cursorIndicatorEnabled: z.boolean().default(true).description('Show a ghost cursor where the agent acts'),
   remoteIndicatorVisible: z.boolean().default(true).description('Visible in remote sessions and recordings'),
   indicatorText: z.string().default(DEFAULT_SETTINGS.indicatorText).description('Banner text'),
   indicatorPosition: z.union([z.const('top'), z.const('bottom')]).default('top').description('Banner position'),
@@ -114,7 +114,7 @@ export async function apply(ctx, config) {
   registerSkillProvider(ctx);
 
   const root = controlDir();
-  const runtime = { configFile: join(root, 'settings.json'), stateFile: join(root, 'state.json'), activityFile: join(root, 'activity.json'), layoutFile: join(root, 'overlay-layout.json') };
+  const runtime = { configFile: join(root, 'settings.json'), stateFile: join(root, 'state.json'), activityFile: join(root, 'activity.json'), layoutFile: join(root, 'overlay-layout.json'), targetFile: join(root, 'target.json') };
 
   let desired = normalizeSettings(config), stopped = false;
   if (config?.[REPAIRED_SETTINGS]?.length) {
@@ -125,7 +125,7 @@ export async function apply(ctx, config) {
   // The takeover helper owns the overlay windows, the banner, the cursor
   // indicator, the global Esc kill, and the paused/stopped series state.
   const takeover = new TakeoverControl({
-    configFile: runtime.configFile, stateFile: runtime.stateFile, activityFile: runtime.activityFile,
+    configFile: runtime.configFile, stateFile: runtime.stateFile, activityFile: runtime.activityFile, targetFile: runtime.targetFile,
     config: desired,
     onStop: error => ctx.logger.warn('dsh-arya-computer-use: %s', error?.message ?? error),
   });
