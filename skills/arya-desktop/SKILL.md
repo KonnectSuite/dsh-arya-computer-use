@@ -18,9 +18,11 @@ Screenshots are evidence, not input.
    thin and grow: pass `timeout_ms: 10000`–`25000` and re-snapshot after the
    first contact.
 2. **Act** — one action on one ref: `click`, `set_value`, `type`, `press`,
-   `scroll`. Prefer `set_value` for edits (no keystrokes); `type` for editors
-   that reject SetValue (background accessibility input by default; real
-   keystrokes only when the headed toggle is on).
+   `scroll`. Prefer `set_value` for edits: it writes through the accessibility
+   value pattern and never touches the pointer. `type` needs real keystrokes, so
+   in the default background mode it only works on targets that accept
+   synthetic text; when it fails, either use `set_value` or enable headed input
+   for this conversation with `tools {operation:"headed",on:true}`.
 3. **Verify** — re-`snapshot` (or `get`/`is` on the ref). The envelope tells
    you what happened:
    - `delivered_verified` — confirmed by readback.

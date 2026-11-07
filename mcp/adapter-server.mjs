@@ -262,7 +262,7 @@ async function callTool(name, args = {}) {
         return parseEnvelope(await runCli(['click', args.ref_id, ...flagArgs([['--timeout-ms', args.timeout_ms]])]));
       });
     case 'set_value':
-      return enqueue(async () => parseEnvelope(await runCli(['set-value', args.ref_id, ...flagArgs([['--value', args.value], ['--timeout-ms', args.timeout_ms]])])));
+      return enqueue(async () => parseEnvelope(await runCli(['set-value', args.ref_id, String(args.value ?? ''), ...flagArgs([['--timeout-ms', args.timeout_ms]])])));
     case 'type':
       return enqueue(async () => {
         await ensureSession();
@@ -271,7 +271,9 @@ async function callTool(name, args = {}) {
           const promote = await ensureForeground(args.ref_id);
           if (promote) return envelopeResult(promote);
         }
-        return parseEnvelope(await runCli(['type', args.ref_id, args.text ?? '', ...flagArgs([['--interval-ms', args.interval_ms], ['--timeout-ms', args.timeout_ms]])], { headed }));
+        const env = parseEnvelope(await runCli(['type', args.ref_id, args.text ?? '', ...flagArgs([['--interval-ms', args.interval_ms], ['--timeout-ms', args.timeout_ms]])], { headed }));
+        if (!headed && env && env.ok !== true) env.hint = 'Background delivery cannot synthesize keystrokes for this target. Prefer set_value, or enable real input for this conversation: tools {operation:"headed",on:true} (moves the pointer), then type again.';
+        return env;
       });
     case 'press':
       return enqueue(async () => {
