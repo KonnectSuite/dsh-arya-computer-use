@@ -63,7 +63,7 @@ docs/PLAN.md          complete v1 plan
    `https://cdn.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json`
 2. Install **Arya Computer Use** from the list, then restart AryaCode.
 
-The published package is `@konnectsuite/dsh-plugin-arya-computer-use` (npm, public). Everything it needs ships in the tarball: the desktop adapter, the browser launcher, the takeover overlay sources and the skill. The two MCP lanes are mounted **in-process** by `index.js` (`ctx.plugin(<bridge>, …)`), so there are no absolute paths in the bundle patch and no `npx` child process — a 1.0.0 install works the same on any machine.
+The published package is `@aryacode/dsh-plugin-arya-computer-use` (npm, public). Everything it needs ships in the tarball: the desktop adapter, the browser launcher, the takeover overlay sources and the skill. The two MCP lanes are mounted **in-process** by `index.js` (`ctx.plugin(<bridge>, …)`), so there are no absolute paths in the bundle patch and no `npx` child process — a 1.0.0 install works the same on any machine.
 
 ### From a checkout (development)
 

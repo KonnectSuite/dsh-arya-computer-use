@@ -1,5 +1,5 @@
 {
-  "name": "@konnectsuite/dsh-plugin-arya-computer-use",
+  "name": "@aryacode/dsh-plugin-arya-computer-use",
   "version": "1.0.0",
   "description": "Computer use for DSH/AryaCode: agent-desktop UIA engine, agent-browser web lane, takeover UI with a ghost cursor",
   "license": "MIT",
@@ -83,7 +83,7 @@
     "agent-browser",
     "windows"
   ],
-  "author": "KonnectSuite",
+  "author": "AryaCode",
   "publishConfig": {
     "access": "public"
   }

@@ -311,7 +311,7 @@ export async function apply(ctx, config) {
     const maskHome = text => String(text).split(os.homedir()).join('~');
     const activity = readJson(runtime.activityFile);
     sendJson(res, 200, {
-      plugin: '@konnectsuite/dsh-plugin-arya-computer-use',
+      plugin: '@aryacode/dsh-plugin-arya-computer-use',
       version: PLUGIN_VERSION,
       controlDir: maskHome(root),
       settings: desired,

@@ -98,7 +98,7 @@ Overlay cost: ~355 ms per headless action (click 427→782 ms). Setting default:
 ## 7. Packaging + install
 
 - Repo `KonnectSuite/dsh-arya-computer-use` (created 2026-11-06, public, alongside the engine mirror).
-- npm package `@konnectsuite/dsh-plugin-arya-computer-use`, Cordis bundle manifest:
+- npm package `@aryacode/dsh-plugin-arya-computer-use`, Cordis bundle manifest:
   - Host entry: adapter service (settings store, driver lock, takeover helper spawn/teardown, loopback `GET /plugins/arya/status`).
   - Client entry: settings page + step rows + status panel.
   - Bundle patch: MCP rows `arya_desktop` (`command: node`, `args: [<adapter-server.mjs via packageDir !!js>]`) + `arya_browser` (`command: npx -y agent-browser@<pinned> mcp --session ...`) + skill row `arya-desktop`.
@@ -114,7 +114,7 @@ Overlay cost: ~355 ms per headless action (click 427→782 ms). Setting default:
 - **Phase 1 — adapter server** — 🟡 **BUILT + SMOKE-TESTED 2026-11-07**: Lite 16, per-conversation session lifecycle (env-scoped), headed toggle, foreground promotion via headed click, screenshot→file path, WinRT OCR (verified en-US), batch guard, tools entry, skill provider (REA pattern). Full loop test passed (launch→find→type→ocr→session_end). Remaining: in-host install + drive test. Accept: drive Notepad/Explorer headless end-to-end; OCR reads a canvas app; Lite token footprint ≪ wincu All-26.
 - **Phase 2 — takeover + UI**: Host/Client plugins, settings page, step rows, edge glow/status bar/Esc kill, cursor overlay lifecycle, driver lock. Accept: wincu-parity UX, English throughout, Esc stops everything in <1 s.
 - **Phase 3 — web lane + retirement** — ✅ **DONE 2026-11-07**: `arya_browser` row now runs through `mcp/browser-launcher.mjs`, which applies the settings (`browserTools`, `browserProfile`, `browserSession`, `browserStateFile`, `browserCdp`, `browserHeaded`) to `agent-browser mcp`; web step rows use the same toolview/step-row pipeline as desktop. Verified live: core profile (29 tools) through the launcher, page open/read, settings page renders the Web lane section. **wincu retirement already complete** — the profile has no `dsh-computer-use-win` row or dependency, and the bundle list has no wincu entry.
-- **Phase 4 — polish** — 🟡 **IN PROGRESS 2026-11-07**: Lazy preset shipped and verified live (3 tools + `tools {operation:"load"}`; DSH's mcp-client really re-syncs on `notifications/tools/list_changed`). **In-process MCP mounting** shipped: `index.js` resolves the host `@deepseek-ai/dsh-mcp-client` bridge (dev override → bare import → host asar → profile paths) and mounts `arya_desktop` + `arya_browser` with `ctx.plugin`, so `cordis.patch.yml` is a single row with no absolute paths. **Published** `@konnectsuite/dsh-plugin-arya-computer-use@1.0.0` to npm (public) with a format-1 market index (`index.json`) served from the repo. Remaining: notifications/clipboard/trace surfaces; Esc/resume kill needs one real hardware keypress.
+- **Phase 4 — polish** — 🟡 **IN PROGRESS 2026-11-07**: Lazy preset shipped and verified live (3 tools + `tools {operation:"load"}`; DSH's mcp-client really re-syncs on `notifications/tools/list_changed`). **In-process MCP mounting** shipped: `index.js` resolves the host `@deepseek-ai/dsh-mcp-client` bridge (dev override → bare import → host asar → profile paths) and mounts `arya_desktop` + `arya_browser` with `ctx.plugin`, so `cordis.patch.yml` is a single row with no absolute paths. **Published** `@aryacode/dsh-plugin-arya-computer-use@1.0.0` to npm (public) with a format-1 market index (`index.json`) served from the repo. Remaining: notifications/clipboard/trace surfaces; Esc/resume kill needs one real hardware keypress.
 
 ## 9. Risks + mitigations
 
@@ -134,7 +134,7 @@ Overlay cost: ~355 ms per headless action (click 427→782 ms). Setting default:
 
 ## 10. Open questions (non-blocking)
 
-1. ~~Package name~~ **RESOLVED 2026-11-06**: repo `dsh-arya-computer-use`, npm `@konnectsuite/dsh-plugin-arya-computer-use`; MCP serverNames stay `arya_desktop` / `arya_browser`.
+1. ~~Package name~~ **RESOLVED 2026-11-06**: repo `dsh-arya-computer-use`, npm `@aryacode/dsh-plugin-arya-computer-use`; MCP serverNames stay `arya_desktop` / `arya_browser`.
 2. Cursor overlay default ON (visibility) vs OFF (speed)?
 3. ~~Lite list confirmation (14 tools above)?~~ **RESOLVED 2026-11-07**: Lite 16 shipped in adapter — `snapshot, find, get, is, click, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools`.
 4. Publish to public npm, or GitHub-install only?

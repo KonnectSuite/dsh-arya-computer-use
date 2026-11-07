@@ -1,13 +1,13 @@
 {
   "format": 1,
-  "title": "KonnectSuite",
-  "description": "Plugins from KonnectSuite.",
+  "title": "AryaCode",
+  "description": "Plugins from AryaCode.",
   "plugins": [
     {
-      "name": "@konnectsuite/dsh-plugin-arya-computer-use",
+      "name": "@aryacode/dsh-plugin-arya-computer-use",
       "title": "Arya Computer Use",
       "description": "Drives Windows apps through accessibility controls with a takeover overlay that frames the driven window, shows a ghost cursor where Arya acts, and stops on Esc. Includes a browser lane (agent-browser) with sign-in profiles and attach-to-my-Chrome.",
-      "author": "KonnectSuite",
+      "author": "AryaCode",
       "homepage": "https://github.com/KonnectSuite/dsh-arya-computer-use#readme",
       "repository": {
         "type": "git",

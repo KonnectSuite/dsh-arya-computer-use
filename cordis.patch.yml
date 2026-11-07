@@ -12,5 +12,5 @@
 # with both paths derived from the installed package at runtime.
 - insert:
     - id: arya-computer-use
-      name: '@konnectsuite/dsh-plugin-arya-computer-use'
+      name: '@aryacode/dsh-plugin-arya-computer-use'
       config: {}

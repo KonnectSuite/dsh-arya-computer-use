@@ -2,7 +2,7 @@
 // Derived from dsh-computer-use-win (MIT, Yu-tao-Li) — browser-policy, tool-preset,
 // and community sections removed; behavior switches (headed/overlay/driver lock) added.
 window.__ModuleLoader__.load({
-  id: '@konnectsuite/dsh-plugin-arya-computer-use',
+  id: '@aryacode/dsh-plugin-arya-computer-use',
   factory: (require) => {
     const React = require('react'), h = React.createElement;
     const NS = 'aryaComputerUse.settings';
