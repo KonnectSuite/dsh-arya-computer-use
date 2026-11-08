@@ -1,4 +1,4 @@
-﻿# Arya Computer Use — Handoff Notes (2026-11-07 ~01:10)
+# Arya Computer Use — Handoff Notes (2026-11-07 ~01:10)
 
 Repo: C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-computer-use (git main, pushed; latest commit 16b940a).
 Bundle: @aryacode/dsh-plugin-arya-computer-use 0.1.0, installed via plugin_manager install_bundle (link: source — keep checkout in place). Restart required to apply row changes.
@@ -94,3 +94,16 @@ instead of decorating the user's pointer.
 - Verified live: tag reads `Arya`; setting it to `Arya Prime` in the UI and saving changed the on-screen tag without a restart; reset back to `Arya`.
 - The same name drives the progress panel header (`Arya · Step 13 · acting`, `Arya · Done · N steps`): `ProgressFrame.Agent` in `scripts/windows-takeover.cs` is assigned from `ApplyPointerLabel`, and the settings row is labelled **Agent name** (used for both the tag and the header). Verified live on 2026-11-07 01:51.
 - Doc repair: earlier PowerShell rewrites had left mojibake in README/HANDOFF (the UTF-8 bytes of en/em dash, section sign, check mark and arrow were double-encoded); all repaired with a node UTF-8 pass. Never edit these files with Get-Content/Set-Content on PowerShell 5.1.
+
+## 2026-11-08 — releasing is two steps: npm, then the market catalog
+
+- **`npm publish` does not update the Arya Plugin Market.** The market lists whatever the generated catalog says, and the catalog is a file on the `catalog` branch of `KonnectSuite/dsh-arya-market` (`data/arya-plugins.json`). Until the release is recorded there, every user's card keeps the old version and reads "Up to date" — publishing to npm only produces a `catalogue-drift` warning in `~/.aryacode/profiles/<profile>/.dsh-market/log.ndjson` when the update check compares npm against the catalog.
+- After publishing, run from the market checkout `C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-market`:
+
+  ```
+  node scripts/publish-arya-release.mjs --npm <version> --source KonnectSuite/dsh-arya-computer-use --push
+  ```
+
+  It downloads the tarball from the registry, records version + sha256, verifies the branch serves it after the push, and needs `gh` auth with `repo` scope. The repo's `package.json` must keep `dsh.bundle.patch` (`./cordis.patch.yml`), otherwise the script's `inspect()` gate refuses the entry.
+- CDNs keep serving the previous catalog for a few minutes after the push (raw.githubusercontent and jsDelivr); the branch is authoritative, clients catch up on their own. The plugin's own index (`MARKET_INDEX_URL`, jsDelivr `@main`) is edge-cached with `s-maxage=43200` (12 h) — purge it after a release with `https://purge.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json`.
+- 1.0.3 (console-window fix) was recorded this way on 2026-11-08: catalog `version: 1.0.3`, `releases: [1.0.3, 1.0.2]`, sha256 `5d67c77f9f6b2d8a458ac25b88891f09d1197c9dad1eb1e13c11653936a4670d`.
