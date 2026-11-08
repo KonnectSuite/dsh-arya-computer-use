@@ -1,6 +1,6 @@
 {
   "name": "@aryacode/dsh-plugin-arya-computer-use",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Computer use for DSH/AryaCode: agent-desktop UIA engine, agent-browser web lane, takeover UI with a ghost cursor",
   "license": "MIT",
   "type": "module",
@@ -29,6 +29,7 @@
     "scripts/windows-takeover.ps1",
     "scripts/windows-takeover.cs",
     "scripts/ocr.ps1",
+    "scripts/hide-consoles.ps1",
     "skills/arya-desktop/SKILL.md",
     "locale/en.json",
     "icon.svg",

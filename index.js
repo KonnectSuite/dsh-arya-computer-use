@@ -19,7 +19,7 @@
 import z from '@deepseek-ai/schemastery';
 import os from 'node:os';
 import { readFile, readFileSync, readdirSync, statSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -33,6 +33,7 @@ export const inject = ['tools'];
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = join(HERE, 'skills', 'arya-desktop');
 const SKILL_FILE = join(SKILL_DIR, 'SKILL.md');
+const CONSOLE_HIDER_SCRIPT = join(HERE, 'scripts', 'hide-consoles.ps1');
 const PROVIDER_NAME = 'arya-computer-use';
 const RANK = 350;
 const STATUS_PATH = '/plugins/arya/status';
@@ -295,7 +296,47 @@ export { ensureMarketSource as __ensureMarketSource };
 
 /* -------------------------------------------------------------------- main */
 
+// Windows gives a console window titled after its executable to any console
+// child that was not created with CREATE_NO_WINDOW. Both engines ship a JS shim
+// (agent-browser/bin/agent-browser.js, agent-desktop/bin/agent-desktop) that
+// runs the native helper with `stdio: 'inherit'` and `windowsHide: false`, so a
+// black console stays on the desktop for as long as the helper lives - the
+// browser daemon keeps it for the whole session - and closing it kills the
+// helper, which is why it comes straight back. The plugin spawns the natives
+// itself wherever the call site allows it; this watcher covers whatever else
+// starts them (a lane restart, an older launcher, a helper started outside the
+// plugin). It hides only classic console windows whose title or image names one
+// of the two engine helpers, and hiding leaves stdio alone, so the helper keeps
+// working.
+function startConsoleHider(ctx) {
+  if (process.platform !== 'win32') return () => {};
+  try {
+    if (!statSync(CONSOLE_HIDER_SCRIPT).isFile()) return () => {};
+  } catch {
+    return () => {};
+  }
+  let child;
+  try {
+    child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', CONSOLE_HIDER_SCRIPT, '-ParentPid', String(process.pid)],
+      { stdio: 'ignore', windowsHide: true },
+    );
+  } catch (error) {
+    ctx.logger.warn('dsh-arya-computer-use: could not start the console watcher: %s', error?.message ?? String(error));
+    return () => {};
+  }
+  child.on('error', error => {
+    ctx.logger.warn('dsh-arya-computer-use: console watcher stopped: %s', error?.message ?? String(error));
+  });
+  child.unref?.();
+  return () => {
+    try { child.kill(); } catch { /* already gone */ }
+  };
+}
+
 export async function apply(ctx, config) {
+  const stopConsoleHider = startConsoleHider(ctx);
   registerSkillProvider(ctx);
   ensureMarketSource(ctx);
   void (async () => {
@@ -438,7 +479,9 @@ export async function apply(ctx, config) {
       state: readJson(runtime.stateFile),
     });
   }
-  return () => {};
+  return () => {
+    stopConsoleHider();
+  };
 }
 
 function isLoopbackAddress(address) {

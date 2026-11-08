@@ -25,6 +25,25 @@ const require = createRequire(import.meta.url);
 const CLI_BIN = require.resolve('agent-desktop/bin/agent-desktop');
 const OCR_PS1 = join(HERE, '..', 'scripts', 'ocr.ps1');
 
+// Windows console-window trap, the same one browser-launcher.mjs documents and
+// avoids: bin/agent-desktop (the npm shim) spawns the native exe with
+// stdio:'inherit' + windowsHide:false, so every tool call pops a console window
+// on the user's desktop. Spawn the native binary directly instead; stdio stays
+// piped and windowsHide holds. Null when the platform has no released binary,
+// in which case the shim is the only way to run the CLI.
+const NATIVE_BIN = (() => {
+  try {
+    const pkgDir = dirname(require.resolve('agent-desktop/package.json'));
+    const { resolve } = require('agent-desktop/lib/platform');
+    const entry = resolve(process.platform, process.arch);
+    if (!entry || !entry.released || !entry.binaryName) return null;
+    const bin = join(pkgDir, 'bin', entry.binaryName);
+    return existsSync(bin) ? bin : null;
+  } catch {
+    return null;
+  }
+})();
+
 // Engine state root: the engine's own default (~/.agent-desktop) — it creates
 // that root with its protected DACL and passes its private-file checks.
 // Do NOT point AGENT_DESKTOP_HOME at AppData\Local: inherited AppContainer ACEs
@@ -179,11 +198,17 @@ function runCli(args, { headed = effectiveHeaded() } = {}) {
   const env = { ...process.env };
   if (state.sessionStarted) env.AGENT_DESKTOP_SESSION = state.sessionId;
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI_BIN, ...argv], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      env,
-    });
+    const child = NATIVE_BIN
+      ? spawn(NATIVE_BIN, argv, {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+          env,
+        })
+      : spawn(process.execPath, [CLI_BIN, ...argv], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+          env,
+        });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
