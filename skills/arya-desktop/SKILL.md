@@ -18,11 +18,11 @@ Screenshots are evidence, not input.
    thin and grow: pass `timeout_ms: 10000`–`25000` and re-snapshot after the
    first contact.
 2. **Act** — one action on one ref: `click`, `set_value`, `type`, `press`,
-   `scroll`. Prefer `set_value` for edits: it writes through the accessibility
-   value pattern and never touches the pointer. `type` needs real keystrokes, so
-   in the default background mode it only works on targets that accept
-   synthetic text; when it fails, either use `set_value` or enable headed input
-   for this conversation with `tools {operation:"headed",on:true}`.
+   `scroll`. **Use `set_value` for every text entry**: it writes through the
+   accessibility value pattern, headless, and never touches the pointer. `type`
+   synthesizes real keystrokes — on Windows that is physical input, so it moves
+   the pointer and briefly focuses the window. It is the last resort, only for
+   an edit that rejects `set_value`.
 3. **Verify** — re-`snapshot` (or `get`/`is` on the ref). The envelope tells
    you what happened:
    - `delivered_verified` — confirmed by readback.
@@ -43,11 +43,14 @@ Screenshots are evidence, not input.
   `lease_directory_untrusted`, tell the user: restart AryaCode as Administrator.
 - **Headed toggle.** Default is headless (no mouse/keyboard takeover): semantic
   UIA input goes straight to the control and never moves the user's pointer.
-  When headless cannot do the job (cursor-moving input, notifications, start
-  menu, tray, surfaces that reject background input), call
-  `tools {operation:"headed",on:true}` for this conversation, then `on:false`
-  when done. Headed input briefly focuses the target window and drives the real
-  keyboard/mouse, so warn the user before switching it on.
+  Headed is an **escape hatch for surfaces that refuse background input**
+  (notifications, start menu, tray, right-click, drag, double-click). It is not
+  the answer to a text field — `set_value` does that headless. Turning it on
+  makes **every** action in this conversation physical: clicks move the real
+  pointer, keystrokes go to the foreground window. So: warn the user before
+  switching it on, call `tools {operation:"headed",on:false}` when the surface
+  is done, and end with `tools {operation:"session_end"}`, which releases it.
+  A latch left on also expires by itself after 5 minutes.
 - **Launch.** Bare names resolve only under System32 (`notepad` works,
   `chrome` does not). Use the absolute exe path. If many instances run, the
   engine refuses to guess — that is correct; ask the user.

@@ -69,6 +69,7 @@ Web lane tools (second row `arya_browser` → `mcp__arya_browser__*`): open, sna
 - First desktop call in a conversation → adapter runs `agent-desktop session start` (with `--cursor` when overlay enabled) → session id; every call injects `--session <id> --agent-id <conversation-id>` → refs are namespaced per conversation (no cross-conversation collisions).
 - Turn end / Esc / session end → `cursor-overlay disable` + `session end` (renderer self-reclaims ≤3000 ms; held input released via SIGTERM semantics).
 - **Headless default.** Per-conversation toggle: `arya_tools {operation:"headed", on:true}` — adapter injects `--headed` for that conversation. Skill documents when headed is required: `type`, right-click, double/triple-click, focus, cursor-moving input, notifications, shell surfaces (start-menu/tray/action-center).
+  - **Headed is a latch, so it must expire.** `runCli` appends `--headed` to *every* command, so a latch left on turns all later clicks/scrolls/launches into physical input — that is a mouse/keyboard takeover. `type` therefore passes `--headed` **per call** (headless `type` is `POLICY_DENIED` on Windows, so it is physical by nature and must not latch the conversation), the latch is released by `session_end`, and `HEADED_LEASE_MS` (5 min) self-releases it. Text entry should use `set_value`, which is headless.
 - State root: `AGENT_DESKTOP_HOME=%LOCALAPPDATA%\dsh-plugin-arya-desktop\state` (set in row env).
 
 ## 5. Takeover UI (parity checklist)
@@ -88,7 +89,7 @@ Overlay cost: ~355 ms per headless action (click 427→782 ms). Setting default:
 
 - Elevated/admin windows: UIPI boundary fails closed natively (agent-desktop) — same practical effect as wincu's admin protection; UAC secure desktop unaddressable by both.
 - Occlusion/hidden/disabled targets: agent-desktop actionability checks (stronger than wincu POINT_COVERED: identity corroboration immediately before each write; `AMBIGUOUS_TARGET` refuses identical twins instead of mis-clicking).
-- Foreground borrow-and-return: adapter restores the user's foreground window after headed actions.
+- Foreground: headed actions **steal** the foreground and `ensureForeground()` promotes with a headed `mouse-click --xy` at the target's bounds center. **Borrow-and-return is NOT implemented** — no code restores the user's foreground window, so a headed action leaves the target focused. Mitigated (not fixed) by scoping `type` to one headed call, releasing the latch on `session_end`, and the 5-minute lease. A real restore is open work.
 - Batch: native `desktop_batch` + adapter guard (1–20 steps, stop on first error/dialog/new-window, per-step delivery disposition).
 - Blocked system shortcuts (alt+f4, win+l, alt+tab, …) refused natively without `--force`; `--force` not exposed by default.
 - Delivery honesty: `delivered_verified / delivered_unverified / not_delivered` + `retry: safe|unsafe` — skill teaches: never retry unsafe; read `details.post_state`.

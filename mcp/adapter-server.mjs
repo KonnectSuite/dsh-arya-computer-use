@@ -62,6 +62,9 @@ const SETTINGS_FILE = join(PLUGIN_DIR, 'control', 'settings.json');
 // The overlay host reads this to frame the app window that is being driven and
 // to place the ghost cursor where the harness acts — never the real pointer.
 const TARGET_FILE = join(PLUGIN_DIR, 'control', 'target.json');
+// The host takeover lane persists its paused/stopped series here. The adapter
+// watches it so the user's Esc stop also drops the physical-input latch.
+const TAKEOVER_STATE_FILE = join(PLUGIN_DIR, 'control', 'state.json');
 
 const VERSION = '0.1.0';
 const MAX_BATCH = 20;
@@ -70,6 +73,7 @@ const state = {
   sessionId: `arya-${randomBytes(4).toString('hex')}`,
   sessionStarted: false,
   headedOverride: null, // tools {operation:'headed'} per-conversation toggle
+  headedExpiresAt: 0, // headedOverride self-releases: a latch left on is a mouse/keyboard takeover
   overlayOverride: null,
   headedDefault: false,
   overlayDefault: true,
@@ -92,13 +96,26 @@ function notifyToolsChanged() {
   // swaps its registered tool generation.
   send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
 }
-const effectiveHeaded = () => state.headedOverride ?? state.headedDefault;
+// A headed latch left on makes EVERY later call physical (runCli appends
+// --headed to all of them), so it releases on its own. Per-call --headed is the
+// normal path; the latch is only an escape hatch for surfaces that need a
+// sequence of physical actions.
+const HEADED_LEASE_MS = 5 * 60 * 1000;
+const effectiveHeaded = () => {
+  if (state.headedOverride === true && Date.now() > state.headedExpiresAt) {
+    state.headedOverride = null;
+    state.headedExpiresAt = 0;
+  }
+  return state.headedOverride ?? state.headedDefault;
+};
 const effectiveOverlay = () => state.overlayOverride ?? state.overlayDefault;
 
 setInterval(() => {
   try {
     const settings = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8'));
-    state.headedDefault = settings.headedDefault !== false;
+    // Strict: a settings file that omits the key must mean OFF. `!== false`
+    // read a missing key as ON, which is a silent mouse/keyboard takeover.
+    state.headedDefault = settings.headedDefault === true;
     state.overlayDefault = settings.overlayDefault !== false;
     const preset = settings.toolPreset === 'lazy' ? 'lazy' : 'lite';
     if (preset !== state.toolPreset) {
@@ -108,6 +125,17 @@ setInterval(() => {
     }
   } catch {
     // Settings file not written yet (plugin not loaded): keep the defaults.
+  }
+  try {
+    // Esc / stop lives in the host lane. A stopped series means the user pushed
+    // back: release the headed latch so the next series starts headless.
+    const takeover = JSON.parse(readFileSync(TAKEOVER_STATE_FILE, 'utf8'));
+    if (takeover?.paused === true && state.headedOverride === true) {
+      state.headedOverride = null;
+      state.headedExpiresAt = 0;
+    }
+  } catch {
+    // No takeover state yet.
   }
 }, 1000).unref();
 
@@ -323,8 +351,8 @@ const TOOLS = [
   tool('get', 'Read one control: property text|value|title|bounds|role|states.', { ref_id: str, property: str }),
   tool('is', 'Check one control: visible|enabled|checked|focused|expanded|selected.', { ref_id: str, property: str }),
   tool('click', 'Press a control via its semantic action (no pixels). Verify by re-snapshot.', { ref_id: str, timeout_ms: int }),
-  tool('set_value', 'Set a control value via UIA SetValue (no keystrokes). Some edits reject this — use type.', { ref_id: str, value: str, timeout_ms: int }),
-  tool('type', 'Type keystrokes into a text target. Background accessibility input by default; with headed on it briefly focuses the window and uses real keystrokes.', { ref_id: str, text: str, interval_ms: int, timeout_ms: int }),
+  tool('set_value', 'Set a control value via UIA SetValue (no keystrokes, no pointer movement). This is the headless text path — use it first for any text entry. Some edits reject it — only then use type.', { ref_id: str, value: str, timeout_ms: int }),
+  tool('type', 'Type real keystrokes into a text target. On Windows keystroke synthesis is physical: this moves the pointer and briefly focuses the window. Prefer set_value (headless UIA write) for text entry.', { ref_id: str, text: str, interval_ms: int, timeout_ms: int }),
   tool('press', 'Send a key chord (e.g. ctrl+s) to an app/window. Foreground queue: for non-frontmost apps expect delivered_unverified.', { combo: str, app: str, window_id: str, force: bool }),
   tool('scroll', 'Scroll a scrollable control: direction up|down|left|right, amount in lines.', { ref_id: str, direction: str, amount: int, timeout_ms: int }),
   tool('list_windows', 'List top-level windows (ids, titles, pids, responsiveness).', { app: str, timeout_ms: int }),
@@ -396,13 +424,15 @@ async function callTool(name, args = {}) {
     case 'type':
       return enqueue(async () => {
         await ensureSession();
-        const headed = effectiveHeaded();
-        if (headed) {
-          const promote = await ensureForeground(args.ref_id);
-          if (promote) return envelopeResult(promote);
-        }
-        const env = parseEnvelope(await runCli(['type', args.ref_id, args.text ?? '', ...flagArgs([['--interval-ms', args.interval_ms], ['--timeout-ms', args.timeout_ms]])], { headed }));
-        if (!headed && env && env.ok !== true) env.hint = 'Background delivery cannot synthesize keystrokes for this target. Prefer set_value, or enable real input for this conversation: tools {operation:"headed",on:true} (moves the pointer), then type again.';
+        // Engine fact on Windows: headless `type` is POLICY_DENIED — keystroke
+        // synthesis is headed-only. `type` is therefore physical by nature, so
+        // --headed is scoped to THIS call and the conversation is never latched
+        // into it. Latching was what made every later click/scroll move the
+        // user's real pointer.
+        const promote = await ensureForeground(args.ref_id);
+        if (promote) return envelopeResult(promote);
+        const env = parseEnvelope(await runCli(['type', args.ref_id, args.text ?? '', ...flagArgs([['--interval-ms', args.interval_ms], ['--timeout-ms', args.timeout_ms]])], { headed: true }));
+        if (env && env.ok !== true) env.hint = 'Keystroke synthesis is physical: it moves the pointer and focuses the window. Prefer set_value, which writes through the UIA value pattern headless.';
         return env;
       });
     case 'press':
@@ -460,7 +490,8 @@ async function callTool(name, args = {}) {
         }
         if (op === 'headed') {
           state.headedOverride = args.on === true;
-          return { content: [{ type: 'text', text: JSON.stringify({ ok: true, headed: effectiveHeaded(), headedDefault: state.headedDefault }) }] };
+          state.headedExpiresAt = args.on === true ? Date.now() + HEADED_LEASE_MS : 0;
+          return { content: [{ type: 'text', text: JSON.stringify({ ok: true, headed: effectiveHeaded(), headedDefault: state.headedDefault, lease_ms: args.on === true ? HEADED_LEASE_MS : 0, note: 'Headed drives the real mouse and keyboard for every action in this conversation. It releases on session_end and expires on its own. Prefer set_value for text so headed is not needed at all.' }) }] };
         }
         if (op === 'overlay') {
           state.overlayOverride = args.on === true;
@@ -506,6 +537,9 @@ async function callTool(name, args = {}) {
           await runCli(['session', 'gc']);
           state.sessionStarted = false;
           state.sessionId = `arya-${randomBytes(4).toString('hex')}`;
+          // Ending the driver session also releases the physical-input latch.
+          state.headedOverride = null;
+          state.headedExpiresAt = 0;
           return { content: [{ type: 'text', text: JSON.stringify({ ok: env.ok === true, note: 'new session starts on next action', engine: env }) }] };
         }
         return {
@@ -583,7 +617,8 @@ const INSTRUCTIONS = [
   'Arya Computer Use: drive Windows apps through semantic UIA refs, not pixels.',
   'Loop: snapshot (skeleton/compact first) -> act on @refs -> re-snapshot to verify.',
   'Refs go stale after window changes: on STALE_REF/AMBIGUOUS_TARGET, re-snapshot.',
-  'type uses background accessibility input by default and never moves the pointer; tools {operation:"headed",on:true} switches this conversation to real keyboard/mouse input when a surface needs it.',
+  'set_value is the headless text path (UIA value pattern, pointer stays put). type synthesizes real keystrokes: it moves the pointer and focuses the window, scoped to that one call.',
+  'Headed mode (tools {operation:"headed",on:true}) makes EVERY action in this conversation physical input. Use it only when background input is refused; it releases on session_end and expires after 5 minutes.',
   'Chromium windows settle slowly: snapshot with timeout_ms 10000-25000.',
   'Verify stateful actions by re-read; delivered_verified = confirmed, delivered_unverified retry:unsafe = do not blind-repeat.',
   'On ACTION_FAILED post_action_verification the action landed: read data.post_state, do NOT retry.',

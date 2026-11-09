@@ -36,7 +36,7 @@ Replaces [dsh-computer-use-win](https://github.com/Yu-tao-Li/dsh-computer-use-wi
 | 3 | Web lane (`arya_browser` row), sign-in profiles, attach-to-your-Chrome, **wincu retirement** | planned |
 | 4 | Lazy preset, notifications/clipboard/trace, npm publish | planned |
 
-Lite 16 tool surface: `snapshot, find, get, is, click, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools` (superset of wincu Lite 12; `set_value` fills a field through the accessibility value pattern without touching the pointer; `type` follows the input lane (background by default, real keyboard only when that conversation opts in); `tools` manages headed/overlay/session state).
+Lite 16 tool surface: `snapshot, find, get, is, click, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools` (superset of wincu Lite 12; `set_value` fills a field through the accessibility value pattern without touching the pointer — **the headless text path, use it for text entry**; `type` synthesizes real keystrokes, which on Windows is physical input, so it moves the pointer and focuses the window; `tools` manages headed/overlay/session state).
 
 Full plan: [docs/PLAN.md](docs/PLAN.md).
 
@@ -77,7 +77,7 @@ The published package is `@aryacode/dsh-plugin-arya-computer-use` (npm, public).
 | Show a ghost cursor | on | Draw a synthetic cursor where the agent acts; your pointer is never followed |
 | Agent name | `Arya` | Drives the ghost-cursor tag and the progress-panel header (`Arya · Step 3 · acting`), 1–16 characters |
 | Banner text | `Arya is controlling your computer` | One line, 1–120 characters |
-| Real mouse and keyboard | off | Opted-in headed input for one conversation; the background lane never moves the pointer |
+| Real mouse and keyboard | off | Opted-in headed input for one conversation: **every** action then drives the real pointer and keyboard. It releases on `session_end` and expires after 5 minutes. Text entry never needs it — `set_value` is headless; `type` is physical on its own. |
 | One conversation drives at a time | on | Refuses desktop tools in other conversations while a drive is live |
 | Stop shortcut | Esc | Global kill switch; synthetic keystrokes are ignored, so it needs a real keypress |
 | Tool preset | `lite` | `lite` lists all 16 desktop tools; `lazy` starts with tools/snapshot/click and reveals the rest on demand |
