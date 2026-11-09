@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
       indicatorIdleMs: 800, stopShortcut: '', resumeToken: 0, previewToken: 0,
       headedDefault: false, overlayDefault: true, driverLockEnabled: true,
       toolPreset: 'lite',
-  browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserHeaded: false,
+  browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserHeaded: false, browserToolFlags: 'strip',
     };
     const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
     const dictionaries = {
@@ -41,6 +41,7 @@ window.__ModuleLoader__.load({
         overlayDefault: '引擎会话叠加层', overlayDefaultHint: '启动桌面会话时启用引擎自带的光标叠加层。Arya 的虚拟光标不依赖它。',
         driverLock: '单会话驱动', driverLockHint: '同一时间只允许一个对话操作桌面；其他对话调用桌面工具会收到 BUSY 提示。关闭后最近使用的对话自动接管。',
         browserTitle: '网页通道', browserTools: '工具范围', browserToolsHint: 'agent-browser 向 MCP 暴露的工具集。修改后需重启 MCP 生效。',
+        browserFlags: '精简工具定义', browserFlagsHint: '插件启动网页通道时已经设好域名、证书、会话等全局参数，每个工具里重复的这些参数可以删掉：strip 全部删除（约省 1.8 万 token），lean 保留会话与状态恢复相关项，off 保持 agent-browser 原样。修改后需重启 MCP 生效。', browserFlagsStrip: 'strip · 全部删除', browserFlagsLean: 'lean · 保留会话项', browserFlagsOff: 'off · 保持原样',
         browserProfile: 'Chrome 配置', browserProfileHint: '配置名称（如 Default）或目录路径，让网页通道复用你的登录状态。',
         browserSession: '会话名', browserSessionHint: '隔离的会话键；不同会话名的 Cookie 与标签页彼此独立。',
         browserCdp: '连接我的浏览器', browserCdpHint: 'CDP 地址，例如 http://127.0.0.1:9222。用 --remote-debugging-port=9222 启动 Chrome 即可共享已登录的窗口。',
@@ -92,6 +93,7 @@ window.__ModuleLoader__.load({
         overlayDefault: 'Engine session overlay', overlayDefaultHint: "Starts the desktop session with the engine's own cursor overlay. Arya's ghost cursor does not depend on it; leave it off unless you want the engine marker too.",
         driverLock: 'One conversation drives at a time', driverLockHint: 'While one conversation is driving, desktop calls from other conversations receive a BUSY notice. Turn off to let the most recent conversation take over automatically.',
         browserTitle: 'Web lane', browserTools: 'Tool surface', browserToolsHint: 'Which agent-browser tool profiles the MCP server exposes. Changing this applies on the next MCP restart.',
+        browserFlags: 'Trim tool schemas', browserFlagsHint: 'The plugin already sets domains, certificates, session and other host-wide flags when it starts the web lane, so the copies repeated inside every tool can go: strip removes them all (about 18k tokens saved), lean keeps the session and state-restore ones, off leaves the agent-browser schemas untouched. Changes apply after the next MCP restart.', browserFlagsStrip: 'strip · remove all', browserFlagsLean: 'lean · keep session flags', browserFlagsOff: 'off · keep as shipped',
         browserProfile: 'Chrome profile', browserProfileHint: 'A profile name such as Default, or a directory path, so the web lane reuses your sign-ins.',
         browserSession: 'Session', browserSessionHint: 'An isolated session key; cookies and tabs stay separate per name.',
         browserCdp: 'Connect to my browser', browserCdpHint: 'A CDP endpoint such as http://127.0.0.1:9222. Start Chrome with --remote-debugging-port=9222 to share a signed-in window.',
@@ -356,6 +358,7 @@ window.__ModuleLoader__.load({
           head(idPrefix + '-browser-title', 'browserTitle'),
           h('div', { className: 'arya-grid' },
             field(title(t('browserTools'), 'browserToolsHint', { htmlFor: idPrefix + '-browserTools' }), h('select', { id: idPrefix + '-browserTools', value: draft.browserTools, disabled, onChange: (e) => change('browserTools', e.target.value) }, ...['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'].map((key) => h('option', { key, value: key }, key)))),
+            field(title(t('browserFlags'), 'browserFlagsHint', { htmlFor: idPrefix + '-browserToolFlags' }), h('select', { id: idPrefix + '-browserToolFlags', value: draft.browserToolFlags, disabled, onChange: (e) => change('browserToolFlags', e.target.value) }, ...[['strip', 'browserFlagsStrip'], ['lean', 'browserFlagsLean'], ['off', 'browserFlagsOff']].map(([value, label]) => h('option', { key: value, value }, t(label))))),
             switchItem('browserHeaded', 'browserHeaded', 'browserHeadedHint', arts.monitor && arts.monitor(draft.browserHeaded) || arts.cursor(draft.browserHeaded))),
           h('div', { className: 'arya-fields' },
             field(title(t('browserProfile'), 'browserProfileHint', { htmlFor: idPrefix + '-browserProfile' }), h('input', { id: idPrefix + '-browserProfile', type: 'text', maxLength: 200, placeholder: 'Default', value: draft.browserProfile, disabled, onChange: (e) => change('browserProfile', e.target.value) })),

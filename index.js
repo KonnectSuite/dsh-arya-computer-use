@@ -223,6 +223,7 @@ const fields = {
   driverLockEnabled: z.boolean().default(true).description('One conversation drives the desktop at a time'),
   toolPreset: z.union(['lite', 'lazy'].map(value => z.const(value))).default('lite').description('Tool surface size: lite lists all 16 tools; lazy starts with tools/snapshot/click and reveals the rest on demand'),
   browserTools: z.union(['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'].map(value => z.const(value))).default('core').description('agent-browser tool profiles exposed on the MCP row'),
+  browserToolFlags: z.union(['strip', 'lean', 'off'].map(value => z.const(value))).default('strip').description('Web lane schema size: strip drops the host/launch flags the plugin sets at launch from every tool, lean keeps session/restore/timeout, off keeps the agent-browser schemas unchanged'),
   browserProfile: z.string().default('').description('Chrome profile name or directory the web lane reuses for sign-ins'),
   browserSession: z.string().default('').description('Isolated browser session key'),
   browserStateFile: z.string().default('').description('Saved sign-in state file for the web lane'),

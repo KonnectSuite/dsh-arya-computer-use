@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   resumeToken: 0, previewToken: 0,
   headedDefault: false, overlayDefault: true, driverLockEnabled: true, toolPreset: 'lite',
   browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserHeaded: false,
+  browserToolFlags: 'strip',
 });
 
 export const STOP_SHORTCUT_PATTERN = /^(?:(?:Ctrl\+)?(?:Alt\+)?(?:Shift\+)?(?:Win\+)?(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Pause|CapsLock|NumLock|ScrollLock))?$/;
@@ -37,6 +38,7 @@ const SETTING_SWITCHES = ['progressOverlayEnabled', 'indicatorEnabled', 'cursorI
 SETTING_CHOICES.progressOverlayPosition = ['top-right','top-left','bottom-right','bottom-left','custom'];
 SETTING_CHOICES.progressOverlayMode = ['source','summary'];
 SETTING_CHOICES.browserTools = ['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'];
+SETTING_CHOICES.browserToolFlags = ['strip', 'lean', 'off'];
 SETTING_CHOICES.toolPreset = ['lite', 'lazy'];
 export function repairStaleSettings(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { value: input, repaired: [] };
@@ -72,6 +74,7 @@ export function normalizeSettings(input = {}) {
   if (!SETTING_CHOICES.progressOverlayMode.includes(value.progressOverlayMode)) throw new Error('Invalid progressOverlayMode');
   if (!SETTING_CHOICES.toolPreset.includes(value.toolPreset)) throw new Error('toolPreset must be one of ' + SETTING_CHOICES.toolPreset.join(', '));
   if (!SETTING_CHOICES.browserTools.includes(value.browserTools)) throw new Error('browserTools must be one of ' + SETTING_CHOICES.browserTools.join(', '));
+  if (!SETTING_CHOICES.browserToolFlags.includes(value.browserToolFlags)) throw new Error('browserToolFlags must be one of ' + SETTING_CHOICES.browserToolFlags.join(', '));
   for (const key of ['browserProfile', 'browserSession', 'browserStateFile', 'browserCdp']) {
     if (typeof value[key] !== 'string') throw new Error(`${key} must be a string`);
     if (/[\r\n\x00-\x1f]/.test(value[key])) throw new Error(`${key} must be one line`);

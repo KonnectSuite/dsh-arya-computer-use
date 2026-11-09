@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, platform, arch } from 'node:os';
 import { dirname, join } from 'node:path';
+import { Transform } from 'node:stream';
 
 const require = createRequire(import.meta.url);
 const SHIM = require.resolve('agent-browser/bin/agent-browser.js');
@@ -57,6 +58,69 @@ function readSettings() {
 
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
 
+// Every agent-browser tool repeats the same host/launch flags in its schema, and
+// the plugin already sets them on the server command line below. They are worth
+// about 630 tokens per tool, so the relay rewrites tools/list responses to drop
+// them. agent-browser rejects undeclared argument keys with an invalid-params
+// error naming the key, so a caller that passes a dropped flag is told, not
+// silently mis-ruled.
+export const FLAG_KEYS_HOST = ['extraArgs', 'caCert', 'clearCaCert', 'useSystemCa', 'allowedDomains', 'namespace', 'idleTimeout'];
+export const FLAG_KEYS_REST = ['restore', 'restoreSave', 'restoreCheckFn', 'restoreCheckText', 'restoreCheckUrl', 'session', 'timeoutMs'];
+
+export function flagKeys(mode) {
+  if (mode === 'lean') return FLAG_KEYS_HOST;
+  if (mode === 'off') return [];
+  return [...FLAG_KEYS_HOST, ...FLAG_KEYS_REST];
+}
+
+export function stripToolFlags(tools, keys) {
+  const drop = new Set(keys);
+  let removed = 0;
+  for (const tool of Array.isArray(tools) ? tools : []) {
+    const schema = tool?.inputSchema;
+    if (schema?.properties) {
+      for (const key of drop) if (key in schema.properties) { delete schema.properties[key]; removed++; }
+    }
+    if (Array.isArray(schema?.required)) {
+      const kept = schema.required.filter((key) => !drop.has(key));
+      removed += schema.required.length - kept.length;
+      schema.required = kept;
+    }
+  }
+  return removed;
+}
+
+// MCP stdio is one JSON message per line, so the relay transforms line by line.
+// Anything that is not a tools/list response is forwarded byte-for-byte.
+export function transformLine(line, drop) {
+  if (!line.includes('"tools"')) return line;
+  let message;
+  try { message = JSON.parse(line); } catch { return line; }
+  if (!Array.isArray(message?.result?.tools)) return line;
+  return stripToolFlags(message.result.tools, drop) ? JSON.stringify(message) : line;
+}
+
+export function createFlagStripTransform(keys) {
+  const drop = new Set(keys);
+  let pending = '';
+  return new Transform({
+    transform(chunk, encoding, callback) {
+      pending += chunk.toString('utf8');
+      let cut = pending.indexOf('\n');
+      while (cut >= 0) {
+        this.push(`${transformLine(pending.slice(0, cut), drop)}\n`);
+        pending = pending.slice(cut + 1);
+        cut = pending.indexOf('\n');
+      }
+      callback();
+    },
+    flush(callback) {
+      if (pending) this.push(transformLine(pending, drop));
+      callback();
+    },
+  });
+}
+
 export function browserArgs(settings = {}) {
   const args = [SHIM, 'mcp'];
   const tools = text(settings.browserTools);
@@ -74,7 +138,9 @@ export function browserArgs(settings = {}) {
 }
 
 function main() {
-  const args = browserArgs(readSettings());
+  const settings = readSettings();
+  const args = browserArgs(settings);
+  const flagKeys_ = flagKeys(text(settings.browserToolFlags));
   const native = nativeBin();
   const child = native
     ? spawn(native, args.slice(1), { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
@@ -85,7 +151,8 @@ function main() {
   });
   child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
   process.stdin.pipe(child.stdin);
-  child.stdout.pipe(process.stdout);
+  if (flagKeys_.length) child.stdout.pipe(createFlagStripTransform(flagKeys_)).pipe(process.stdout);
+  else child.stdout.pipe(process.stdout);
   child.stderr.pipe(process.stderr);
   child.stdin.on('error', () => { /* child gone mid-write; the exit handler ends us */ });
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
