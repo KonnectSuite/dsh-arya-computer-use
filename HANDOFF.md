@@ -108,7 +108,7 @@ instead of decorating the user's pointer.
 - CDNs keep serving the previous catalog for a few minutes after the push (raw.githubusercontent and jsDelivr); the branch is authoritative, clients catch up on their own. The plugin's own index (`MARKET_INDEX_URL`, jsDelivr `@main`) is edge-cached with `s-maxage=43200` (12 h) — purge it after a release with `https://purge.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json`.
 - 1.0.3 (console-window fix) was recorded this way on 2026-11-08: catalog `version: 1.0.3`, `releases: [1.0.3, 1.0.2]`, sha256 `5d67c77f9f6b2d8a458ac25b88891f09d1197c9dad1eb1e13c11653936a4670d`.
 
-## 2026-11-11 — end-to-end audit + six fixes (not yet released)
+## 2026-11-11 — end-to-end audit + six fixes (released as 1.0.6)
 
 Ask (m00001): verify the plugin end to end, explain why it does not feel faster/more accurate, and check whether too much of the community plugin was carried over. Audit pass first (live drive in-host), then the user said "do all 1-6" (m00247).
 
@@ -141,7 +141,15 @@ Ask (m00001): verify the plugin end to end, explain why it does not feel faster/
 - The running adapter in the host is still 1.0.5 code: the fixes land on the next MCP restart / AryaCode restart. index.js keeps `desired` in memory, so a Settings-UI save can rewrite `toolPreset`/`progressOverlayMode` back to the old values until the host restarts.
 
 ### Not done
-- No version bump, no npm publish, no market catalog entry (release is the user's call; see the 2026-11-08 section).
 - Real-hardware Esc has still never been pressed to verify the takeover lane's own kill path (injected keys are ignored by design, windows-takeover.cs `if (injected) return false;`). Fix 1 is verified by publishing the same lease state the lane writes, not by a keypress.
 - The engine mirror's `focus` headless refusal is upstream policy; if we want headless focus we need an engine change, not an adapter change.
+
+## 2026-11-11 — 1.0.6 published
+
+- Commits `8dccaf2` (the six fixes + docs), `88ba88d` (version bump), `9d582d4` (index.json), all pushed to `main`.
+- `package-lock.json` had drifted to **1.0.4** while package.json was 1.0.5 — synced both fields to 1.0.6.
+- `npm publish` → `+ @aryacode/dsh-plugin-arya-computer-use@1.0.6`, `latest: 1.0.6`, shasum `60741ef2fc4b335cbbb0dd4e4fe85244f9855108`. npm's staged publishing made the version 404 for ~90 s after the publish succeeded — poll `npm view <name>@<version>` instead of re-publishing (a 409 there means it IS published).
+- `node scripts/release-plugin.mjs --dir ../dsh-arya-computer-use` (from `dsh-arya-market`) exited 0: it detected the version already on the registry with matching bytes, reconciled the catalogue, and verified. Catalogue `sha256 6a8a047f562b…`; the `catalog` branch serves `version: 1.0.6`, `releases: [1.0.6, 1.0.5, 1.0.4, 1.0.3, 1.0.2]`. `check-catalogue-parity.mjs`: 0 errors, our row `1.0.6 / 1.0.6 / ok`.
+- **Gap found and fixed:** the plugin-hosted `index.json` (the `MARKET_INDEX_URL` jsDelivr serves) had stopped at **1.0.4** — 1.0.5 was never recorded there, so a host reading that index was told 1.0.4 was newest. Added 1.0.5 (`publishTimestamp 1794252476`) and 1.0.6 (`1794426570`) from the npm packument, pushed, and purged `https://purge.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json`; jsDelivr then served all five versions. Check this file in every release, not just the market catalog.
+- Pre-existing market warning, not ours: `@aryacode/dsh-client-ui-release-notes@0.2.1-rc.3` is on npm but unlistable (its published manifest carries a `workspace:`/`link:`/`file:` dependency).
 
