@@ -8,7 +8,7 @@ Replaces [dsh-computer-use-win](https://github.com/Yu-tao-Li/dsh-computer-use-wi
 
 | wincu complaint | Arya Computer Use |
 | --- | --- |
-| Slow (PowerShell + UIA backend) | Native Rust engine: snapshot ~117 ms, ref action ~197 ms on a Windows devbox |
+| Slow (PowerShell + UIA backend) | Native Rust engine: ~90 ms per call measured on this devbox (snapshot 90 ms, ref action 85 ms, `list-windows` 56 ms). Every CLI call costs ~85 ms of process start plus UIA init, so the number of calls, not the tool, sets the latency — `batch` runs up to 20 steps in one call (6 steps: 332 ms engine vs ~510 ms step by step) |
 | Pixel alignment off | Ref-based semantic UIA — coordinates are never the targeting mechanism; identical twins are refused, not mis-clicked |
 | Chinese UI/docs | English throughout |
 | (kept) DSH integration + setup UI | Settings page, chat step rows, takeover overlay, Esc kill, tool presets |
@@ -31,12 +31,12 @@ Replaces [dsh-computer-use-win](https://github.com/Yu-tao-Li/dsh-computer-use-wi
 | Phase | Deliverable | Status |
 | --- | --- | --- |
 | 0 | Evaluation spike: raw `agent-desktop mcp` row, drive Notepad/Explorer/Chrome — speed ✓, readable trees ✓, refs-not-pixels ✓ | ✅ accepted, spike removed |
-| 1 | Adapter MCP server: Lite 16 tools, per-conversation session lifecycle, headed toggle + foreground promotion, screenshot→file path, WinRT OCR, skill | ✅ built, installed, driven in-host |
+| 1 | Adapter MCP server: Lite 22 tools, per-conversation session lifecycle, headed toggle + foreground promotion, screenshot→file path, WinRT OCR, skill | ✅ built, installed, driven in-host |
 | 2 | Takeover UI: window rim + banner + Esc kill, configurable ghost cursor, settings page, chat step rows, driver lock, English UI | ✅ built + verified live |
 | 3 | Web lane (`arya_browser` row), sign-in profiles, attach-to-your-Chrome, **wincu retirement** | planned |
 | 4 | Lazy preset, notifications/clipboard/trace, npm publish | planned |
 
-Lite 16 tool surface: `snapshot, find, get, is, click, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools` (superset of wincu Lite 12; `set_value` fills a field through the accessibility value pattern without touching the pointer — **the headless text path, use it for text entry**; `type` synthesizes real keystrokes, which on Windows is physical input, so it moves the pointer and focuses the window; `tools` manages headed/overlay/session state).
+Lite 22 tool surface: `snapshot, find, get, is, click, focus, double_click, right_click, expand, collapse, toggle, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools` (superset of wincu Lite 12; `set_value` fills a field through the accessibility value pattern without touching the pointer — **the headless text path, use it for text entry**; `expand`/`collapse`/`toggle` are semantic UIA patterns and stay headless; `focus`, `double_click` and `right-click` have no headless path on Windows, so each one drives the real pointer for that single call and never latches the conversation; `type` likewise synthesizes real keystrokes, which on Windows is physical input; `tools` manages headed/overlay/session state).
 
 Full plan: [docs/PLAN.md](docs/PLAN.md).
 
@@ -47,7 +47,7 @@ package.json          Cordis bundle manifest (dsh.bundle.patch) + pinned engine 
 cordis.patch.yml      rows: arya-computer-use (Host), mcp-arya-desktop, mcp-arya-browser
 index.js              Host plugin entry (settings, driver lock, takeover mgmt, status route)
 client.js             Settings page + chat step rows (client plugin)
-mcp/adapter-server.mjs  adapter MCP server (Lite 16 tool surface)
+mcp/adapter-server.mjs  adapter MCP server (Lite 22 tool surface)
 scripts/windows-takeover.cs  window rim + banner + progress + ghost cursor + global Esc
 scripts/ocr.ps1       WinRT OCR helper (Phase 1)
 skills/arya-desktop/  observe-act loop guide (Phase 1)
@@ -79,8 +79,9 @@ The published package is `@aryacode/dsh-plugin-arya-computer-use` (npm, public).
 | Banner text | `Arya is controlling your computer` | One line, 1–120 characters |
 | Real mouse and keyboard | off | Opted-in headed input for one conversation: **every** action then drives the real pointer and keyboard. It releases on `session_end` and expires after 5 minutes. Text entry never needs it — `set_value` is headless; `type` is physical on its own. |
 | One conversation drives at a time | on | Refuses desktop tools in other conversations while a drive is live |
-| Stop shortcut | Esc | Global kill switch; synthetic keystrokes are ignored, so it needs a real keypress |
-| Tool preset | `lite` | `lite` lists all 16 desktop tools; `lazy` starts with tools/snapshot/click and reveals the rest on demand |
+| Progress panel detail | `summary` | What the on-screen step panel prints: `summary` = short action lines, `source` = the assistant's raw text stream (the old default — it paints model text on your desktop) |
+| Stop shortcut | Esc | Global kill switch; synthetic keystrokes are ignored, so it needs a real keypress. It now also gates the driver: desktop input tools return `COMPUTER_USE_STOPPED_BY_USER` for that turn (reads keep working) |
+| Tool preset | `lite` | `lite` lists all 22 desktop tools; `lazy` starts with tools/snapshot/click and reveals the rest on demand |
 | Tool surface (web) | `core` | agent-browser tool profile: core 29, network 9, state 27, debug 40, tabs 13, react 8, mobile 15, webmcp 4, all 156 |
 | Chrome profile / Session | – / `arya` | Reuse a Chrome login state and name the browser session |
 | Connect to my browser | – | `--cdp` port or URL to attach to a Chrome you already have open |
@@ -110,7 +111,7 @@ repair them itself at start-up - the status route reports the outcome under `mcp
 
 ## Tool presets
 
-- `lite` (default) — all 16 desktop tools listed up front.
+- `lite` (default) — all 22 desktop tools listed up front.
 - `lazy` — starts with `tools`, `snapshot`, `click`; everything else appears after `tools {operation:"load", names:[...]}`. The adapter advertises `tools.listChanged` and emits `notifications/tools/list_changed`, which DSH's MCP client re-syncs (`listChanged.onChanged → refreshTools`), so the new tools become callable immediately.
 
 ## License

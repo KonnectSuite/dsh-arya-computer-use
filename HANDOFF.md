@@ -107,3 +107,41 @@ instead of decorating the user's pointer.
   It downloads the tarball from the registry, records version + sha256, verifies the branch serves it after the push, and needs `gh` auth with `repo` scope. The repo's `package.json` must keep `dsh.bundle.patch` (`./cordis.patch.yml`), otherwise the script's `inspect()` gate refuses the entry.
 - CDNs keep serving the previous catalog for a few minutes after the push (raw.githubusercontent and jsDelivr); the branch is authoritative, clients catch up on their own. The plugin's own index (`MARKET_INDEX_URL`, jsDelivr `@main`) is edge-cached with `s-maxage=43200` (12 h) — purge it after a release with `https://purge.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json`.
 - 1.0.3 (console-window fix) was recorded this way on 2026-11-08: catalog `version: 1.0.3`, `releases: [1.0.3, 1.0.2]`, sha256 `5d67c77f9f6b2d8a458ac25b88891f09d1197c9dad1eb1e13c11653936a4670d`.
+
+## 2026-11-11 — end-to-end audit + six fixes (not yet released)
+
+Ask (m00001): verify the plugin end to end, explain why it does not feel faster/more accurate, and check whether too much of the community plugin was carried over. Audit pass first (live drive in-host), then the user said "do all 1-6" (m00247).
+
+### What the audit found
+- **The engine is not slow; the number of calls is.** Measured on this devbox from an elevated shell: every CLI call costs ~85 ms regardless of work (snapshot 90 ms, `get bounds` 85 ms, `is focused` 84 ms, `list-windows` 56 ms, `version` alone 16 ms). Per-call spawn (the adapter's model) is only ~7 ms/call slower than a persistent `agent-desktop mcp` process (86 ms vs 79 ms mean) — so the adapter architecture is NOT the reason it feels slow. What costs is the loop: snapshot → action → `get bounds` for the overlay → verify snapshot ≈ 350 ms of engine time per step, before model latency.
+- **Esc did not stop the driver.** The takeover lane blocks the series (mcp/takeover.mjs:111,164,184) and the banner says "Esc Stop", but the adapter never consulted `blockedSeries` — it only dropped the headed latch (:129-139) and index.js onStop only logs. So after Esc the agent kept driving. This is the one genuine safety defect found.
+- **The progress panel painted the model's raw text on the desktop.** `progressOverlayMode` defaulted to `'source'`; windows-takeover.cs:808 prints the assistant's stream verbatim (my own planning sentences were legible on the user's screen during the audit).
+- **`batch` dropped payloads and paid N spawns.** summarizeEnvelope reported only refs/window/pid/delivery, so a batch `find` returned bare "ok" with no ref; and the adapter looped its own steps instead of using the engine's native `batch`.
+- **Provenance answer for the user:** no git merges (24 linear commits). By file headers, `scripts/windows-takeover.cs` (1179 L) + `mcp/activity.mjs` (292 L) + `mcp/settings.mjs` vocabulary are wincu-derived (~1.5k lines) vs 686 L of our own adapter. The wanted parts (window-scoped edge highlight, ghost cursor, Settings UI) are ours/kept; the progress panel is the wincu part that buys nothing.
+- **Surface gap:** Lite-16 exposed 13 of the engine's 56 operational commands. `click` on an edit refuses headless (POLICY_DENIED, needs focus) and `focus` was not exposed, so the agent burned extra turns.
+
+### The six fixes (all in mcp/adapter-server.mjs unless noted)
+1. **Esc gates the driver.** New `ACTIVITY_FILE` (:68), `STOPPED_BY_USER`, `INPUT_TOOLS`, `stoppedSeriesMessage()` (recomputes the takeover series key `JSON.stringify([activity.sessionId, activity.turn])` from the live lease, then reads `blockedSeries` / `stoppedSeriesKey` in state.json), `stoppedResult()`. `callTool` refuses every input tool for a blocked series; reads stay open (the user asked to stop being driven, not to be observed). A new turn is a new key, so it self-releases like the host lane. INSTRUCTIONS gained the matching line.
+2. **`progressOverlayMode` default → `'summary'`** (mcp/settings.mjs:6). `'source'` stays available.
+3. **Native batch.** `NATIVE_BATCH_COMMANDS` map, `BATCH_ARG_KEYS` whitelist (engine rejects unknown keys; `wait` uses `timeout`), `batchEntryArgs`, `trimBatchData` (drops a batch snapshot's tree, keeps payloads). `batch` runs one `agent-desktop batch <JSON>` with `--stop-on-error` when no step needs physical input; `type/screenshot/ocr/focus/double_click/right_click` fall back to the step loop (the engine's `--headed` is global, so a physical step cannot share a batch with semantic steps). summarizeEnvelope now reports `match.ref_id`, `matches[]`, `snapshot_id`, `value`, `result`.
+4. **Overlay-off cost.** noteTarget returns early when `!effectiveOverlay()` (:316) — no `get bounds`, no window list, for presentation nobody sees.
+5. **Surface 16 → 22:** `focus, double_click, right_click, expand, collapse, toggle`. Engine fact (mirror skill + crates/windows/src/actions/focus.rs:98): focus/double-click/right-click have NO headless path on Windows (SetFocus takes the foreground; evidence A3-4, A19-5), so those three run `--headed` scoped to that one call, exactly like `type`; expand/collapse/toggle are semantic and stay headless. DECISION to revisit if the user dislikes it: this drives the real pointer without the "Real mouse and keyboard" opt-in; refusing until headed is on is a one-line change.
+6. **`toolPreset` back to `lite`** in the live control file (it had drifted to `lazy`, which costs a wasted round trip when a hidden tool is called).
+
+### Measured after the fixes (isolated adapter instance, LOCALAPPDATA override)
+- tools/list = 22. Native batch 6 entries: 6/6 completed, engine 451 ms, wall 507 ms (vs ~510 ms step by step) and every entry kept its payload — the `get` entries returned values, the final value read back `2:27 PM 11/11/2026native batch through adapter` (press f5 + set_value both landed in one call).
+- Stop gate: `set_value` and `click` refused with `POLICY_DENIED kind=stopped_by_user`, `snapshot` still ok, and after the lease cleared `set_value` ok — `get value` proved the refused write never landed.
+- Overlay off: `state.overlay=false`, `target.json` NOT written, set_value mean 247 ms; overlay on: written, mean 402 ms → ~155 ms/action saved.
+- `toggle` on a textfield → `ACTION_NOT_SUPPORTED` (correct refusal). `focus` → delivered_verified `UIElement.SetFocus`. `right_click` → delivered_unverified `SendInput.click`.
+
+### Traps hit while testing (record so the next pass does not repeat them)
+- The adapter's control dir is `join(process.env.LOCALAPPDATA,'dsh-plugin-arya-desktop')` — an isolated instance needs `LOCALAPPDATA=<tmp>`, and the control files go in `<tmp>\dsh-plugin-arya-desktop\control\`, not `<tmp>\control\`.
+- `close-app notepad` does NOT close a window with unsaved changes (a save dialog blocks it) → the next run gets `AMBIGUOUS_TARGET` from two Notepad windows. Force-kill (`Stop-Process -Name notepad -Force`) between runs, or pass `window_id`.
+- `noteTarget` needs `state.windowId`; a `launch` alone may not set it in the shape expected, so an overlay-off test that skips a snapshot proves nothing. Snapshot first, then delete target.json, then assert.
+- The running adapter in the host is still 1.0.5 code: the fixes land on the next MCP restart / AryaCode restart. index.js keeps `desired` in memory, so a Settings-UI save can rewrite `toolPreset`/`progressOverlayMode` back to the old values until the host restarts.
+
+### Not done
+- No version bump, no npm publish, no market catalog entry (release is the user's call; see the 2026-11-08 section).
+- Real-hardware Esc has still never been pressed to verify the takeover lane's own kill path (injected keys are ignored by design, windows-takeover.cs `if (injected) return false;`). Fix 1 is verified by publishing the same lease state the lane writes, not by a keypress.
+- The engine mirror's `focus` headless refusal is upstream policy; if we want headless focus we need an engine change, not an adapter change.
+

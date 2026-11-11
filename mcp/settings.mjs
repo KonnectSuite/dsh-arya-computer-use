@@ -3,7 +3,10 @@
 // switches for the adapter (headedDefault, overlayDefault, driverLockEnabled).
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  progressOverlayEnabled: true, progressOverlayMode: 'source',
+  // 'source' paints the assistant's raw text stream on the user's desktop. The
+  // default is the condensed lane; 'source' stays available for anyone who wants
+  // the verbatim panel.
+  progressOverlayEnabled: true, progressOverlayMode: 'summary',
   progressOverlayOpacity: 60, progressOverlayWidth: 360, progressOverlayHeight: 240, progressOverlayPosition: 'top-right', progressOverlayX: 80, progressOverlayY: 80, progressOverlayLocked: true, progressLockShortcut: '', progressPreviewToken: 0,
   indicatorEnabled: true, cursorIndicatorEnabled: true, remoteIndicatorVisible: true, indicatorText: 'Arya is controlling your computer', pointerLabel: 'Arya',
   indicatorPosition: 'top', indicatorIdleMs: 800, stopShortcut: '',

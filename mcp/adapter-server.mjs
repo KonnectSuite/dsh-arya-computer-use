@@ -65,9 +65,70 @@ const TARGET_FILE = join(PLUGIN_DIR, 'control', 'target.json');
 // The host takeover lane persists its paused/stopped series here. The adapter
 // watches it so the user's Esc stop also drops the physical-input latch.
 const TAKEOVER_STATE_FILE = join(PLUGIN_DIR, 'control', 'state.json');
+// The host publishes the current turn's activity lease here. The adapter reads it
+// to recompute the same series key the takeover lane blocks a stopped series on.
+const ACTIVITY_FILE = join(PLUGIN_DIR, 'control', 'activity.json');
 
 const VERSION = '0.1.0';
 const MAX_BATCH = 20;
+
+// The engine's own batch runs entries in one process, through the same policy
+// checks and dispatch as the CLI. Entry keys are the command's own field names: a
+// positional is named after itself, a flag drops `--` and writes `-` as `_`
+// (skills/agent-desktop/references/commands-system.md:170). Unknown keys are
+// rejected, so each action declares the keys it forwards.
+const NATIVE_BATCH_COMMANDS = new Map([
+  ['snapshot', 'snapshot'], ['find', 'find'], ['get', 'get'], ['is', 'is'],
+  ['click', 'click'], ['set_value', 'set-value'], ['press', 'press'],
+  ['scroll', 'scroll'], ['wait', 'wait'], ['focus', 'focus'],
+  ['double_click', 'double-click'], ['right_click', 'right-click'],
+  ['expand', 'expand'], ['collapse', 'collapse'], ['toggle', 'toggle'],
+]);
+// The engine's --headed is global and applies to every batch entry, so a step
+// that needs physical input cannot share one native batch with semantic steps:
+// those run through the adapter one at a time, each with its own scoped flag.
+const LOOP_BATCH_ACTIONS = new Set(['type', 'screenshot', 'ocr', 'focus', 'double_click', 'right_click']);
+const BATCH_ARG_KEYS = {
+  snapshot: ['app', 'window_id', 'compact', 'skeleton', 'interactive_only', 'max_depth', 'root', 'timeout_ms'],
+  find: ['app', 'window_id', 'name', 'role', 'text', 'value', 'native_id', 'description', 'first', 'last', 'nth', 'limit', 'count', 'exact', 'root', 'timeout_ms'],
+  get: ['ref_id', 'property'],
+  is: ['ref_id', 'property'],
+  click: ['ref_id', 'timeout_ms'],
+  focus: ['ref_id', 'timeout_ms'],
+  double_click: ['ref_id', 'timeout_ms'],
+  right_click: ['ref_id', 'timeout_ms'],
+  expand: ['ref_id', 'timeout_ms'],
+  collapse: ['ref_id', 'timeout_ms'],
+  toggle: ['ref_id', 'timeout_ms'],
+  set_value: ['ref_id', 'value', 'timeout_ms'],
+  press: ['combo', 'app', 'window_id', 'force'],
+  scroll: ['ref_id', 'direction', 'amount', 'timeout_ms'],
+  wait: ['ms', 'app', 'window', 'element', 'text', 'timeout'],
+};
+
+function batchEntryArgs(action, args) {
+  const entry = {};
+  for (const key of BATCH_ARG_KEYS[action] ?? []) {
+    const value = action === 'wait' && key === 'timeout' ? (args.timeout ?? args.timeout_ms) : args[key];
+    if (value === undefined || value === null) continue;
+    entry[key] = value;
+  }
+  return entry;
+}
+
+// A batch entry keeps its payload — a find step must yield refs — but a snapshot
+// tree is the largest thing the engine can return, and the batch cap allows 4 MB.
+function trimBatchData(data) {
+  if (!data || !Array.isArray(data.results)) return data;
+  return {
+    ...data,
+    results: data.results.map((entry) => (
+      entry?.command === 'snapshot' && entry.data?.tree
+        ? { ...entry, data: { ...entry.data, tree: undefined, tree_omitted: true } }
+        : entry
+    )),
+  };
+}
 
 const state = {
   sessionId: `arya-${randomBytes(4).toString('hex')}`,
@@ -139,6 +200,46 @@ setInterval(() => {
   }
 }, 1000).unref();
 
+/* ---------------------------------------------------------- user stop */
+
+// Esc lives in the host takeover lane: it blocks the series it was acting for,
+// keyed by [sessionId, turn] from the activity lease (mcp/takeover.mjs:111,184).
+// The adapter is a separate process, so it recomputes that key and refuses every
+// input action for a blocked series. The banner says "Esc Stop"; until now the
+// driver never honoured it. Reads stay available — the user asked to stop being
+// driven, not to be observed. A new user turn is a new key, so the block releases
+// exactly as it does in the host lane, with no settings change.
+const STOPPED_BY_USER = 'COMPUTER_USE_STOPPED_BY_USER: The user stopped this operation series with Esc or their custom shortcut. Do not retry desktop input in this turn. A new user turn, including a request to continue, can use the desktop automatically; no settings change is required.';
+const INPUT_TOOLS = new Set(['click', 'set_value', 'type', 'press', 'scroll', 'launch', 'focus', 'double_click', 'right_click', 'expand', 'collapse', 'toggle', 'batch']);
+
+function stoppedSeriesMessage() {
+  try {
+    const activity = JSON.parse(readFileSync(ACTIVITY_FILE, 'utf8'));
+    if (!(activity.active === true && Number.isFinite(activity.expiresAt) && activity.expiresAt > Date.now())) return null;
+    const saved = JSON.parse(readFileSync(TAKEOVER_STATE_FILE, 'utf8'));
+    const key = JSON.stringify([activity.sessionId, activity.turn]);
+    if (saved?.blockedSeries && Object.prototype.hasOwnProperty.call(saved.blockedSeries, key)) return saved.blockedSeries[key];
+    return saved?.paused === true && saved?.stoppedSeriesKey === key ? (saved.pauseMessage || STOPPED_BY_USER) : null;
+  } catch {
+    return null; // no lease published yet: nothing has been stopped
+  }
+}
+
+function stoppedResult(name, message) {
+  return envelopeResult({
+    version: '2.6',
+    ok: false,
+    command: name,
+    error: {
+      code: 'POLICY_DENIED',
+      message,
+      suggestion: 'Do not retry desktop input in this turn. Report that the user stopped the takeover; a new user turn can drive the desktop again.',
+      details: { kind: 'stopped_by_user' },
+      disposition: { delivery: 'not_delivered', retry: 'safe' },
+    },
+  });
+}
+
 /* ------------------------------------------------------- overlay target */
 
 // The overlay frames the app window that is being driven and puts the ghost
@@ -209,7 +310,10 @@ async function noteTarget(name, args, result) {
   if (name === 'list_windows') rememberWindows(data);
   if (name === 'snapshot') rememberWindows(data);
   if (args?.window_id) state.windowId = args.window_id;
-  if (!state.windowId) return;
+  // target.json feeds the rim and the ghost cursor only. With the overlay off,
+  // skip the CLI calls they cost (element bounds, sometimes a window list):
+  // ~85-140 ms per action spent on presentation nobody is looking at.
+  if (!effectiveOverlay() || !state.windowId) return;
   const window = await windowRectFor(state.windowId);
   const ref = args?.ref_id ?? data?.match?.ref_id ?? null;
   let pointer = ref ? await elementPoint(ref) : null;
@@ -351,6 +455,12 @@ const TOOLS = [
   tool('get', 'Read one control: property text|value|title|bounds|role|states.', { ref_id: str, property: str }),
   tool('is', 'Check one control: visible|enabled|checked|focused|expanded|selected.', { ref_id: str, property: str }),
   tool('click', 'Press a control via its semantic action (no pixels). Verify by re-snapshot.', { ref_id: str, timeout_ms: int }),
+  tool('focus', 'Focus a control through UIA SetFocus. On Windows SetFocus takes the desktop foreground window, so the engine refuses it headless: the adapter runs it as physical input for this one call (same rule as type) without latching the conversation. For text entry prefer set_value, which focuses the field itself.', { ref_id: str, timeout_ms: int }),
+  tool('double_click', 'Double-click a control. Windows has no headless double-click, so this drives the real pointer for this one call (same rule as type). Verify by re-snapshot.', { ref_id: str, timeout_ms: int }),
+  tool('right_click', 'Open a control\u2019s context menu. Windows has no headless right-click, so this drives the real pointer for this one call (same rule as type). The menu is a separate surface: snapshot it after.', { ref_id: str, timeout_ms: int }),
+  tool('expand', 'Expand an expander, tree item, or dropdown via ExpandCollapsePattern (no pixels).', { ref_id: str, timeout_ms: int }),
+  tool('collapse', 'Collapse an expander or tree item via ExpandCollapsePattern (no pixels).', { ref_id: str, timeout_ms: int }),
+  tool('toggle', 'Flip a checkbox or toggle button via TogglePattern. Prefer it over click: it reports the resulting state, and click on a checked control can be refused.', { ref_id: str, timeout_ms: int }),
   tool('set_value', 'Set a control value via UIA SetValue (no keystrokes, no pointer movement). This is the headless text path — use it first for any text entry. Some edits reject it — only then use type.', { ref_id: str, value: str, timeout_ms: int }),
   tool('type', 'Type real keystrokes into a text target. On Windows keystroke synthesis is physical: this moves the pointer and briefly focuses the window. Prefer set_value (headless UIA write) for text entry.', { ref_id: str, text: str, interval_ms: int, timeout_ms: int }),
   tool('press', 'Send a key chord (e.g. ctrl+s) to an app/window. Foreground queue: for non-frontmost apps expect delivered_unverified.', { combo: str, app: str, window_id: str, force: bool }),
@@ -360,7 +470,7 @@ const TOOLS = [
   tool('wait', 'Pause (ms) or wait for a condition: window/app/text/element before acting. Prevents acting on half-settled windows.', { ms: int, app: str, window: str, element: str, text: str, timeout_ms: int }),
   tool('screenshot', 'Capture a window/screen PNG to a file; returns the file path. Use for visual evidence only — trees are the primary signal.', { app: str, window_id: str, screen: int }),
   tool('ocr', 'Read text from a screenshot via Windows OCR (for canvas/games/no-a11y-tree UIs). Returns lines with SCREEN coordinates (not refs). query filters lines.', { app: str, window_id: str, screen: int, query: str }),
-  tool('batch', `Run 1-${MAX_BATCH} planned actions on one target; stops on first error, then observes once. Each step: {action, arguments}. Actions: snapshot,find,get,is,click,set_value,type,press,scroll,wait.`, { commands_json: str, stop_on_error: bool, timeout_ms: int }, ['commands_json']),
+  tool('batch', `Run 1-${MAX_BATCH} planned actions on one target; stops on first error, then observes once. Each step: {action, arguments}. Native single-process actions (fast path): snapshot,find,get,is,click,set_value,press,scroll,wait,focus,double_click,right_click,expand,collapse,toggle. type,screenshot,ocr run step by step.`, { commands_json: str, stop_on_error: bool, timeout_ms: int }, ['commands_json']),
   tool('tools',
     'Manage the adapter: operation list|describe (tool surface + state), load {names} (reveal tools when the lazy preset is on), headed {on} (per-conversation headed toggle — use when headless is not an option: cursor-moving input, notifications, shell surfaces), overlay {on} (presentation cursor overlay), session_end {operation} (end this conversation\'s driver session).',
     { operation: str, name: str, names: { type: 'array', items: str }, on: bool }),
@@ -388,6 +498,10 @@ function flagArgs(pairs) {
 }
 
 async function callTool(name, args = {}) {
+  if (INPUT_TOOLS.has(name)) {
+    const stopped = stoppedSeriesMessage();
+    if (stopped) return stoppedResult(name, stopped);
+  }
   switch (name) {
     case 'snapshot':
       return enqueue(async () => {
@@ -418,6 +532,24 @@ async function callTool(name, args = {}) {
       return enqueue(async () => {
         await ensureSession();
         return parseEnvelope(await runCli(['click', args.ref_id, ...flagArgs([['--timeout-ms', args.timeout_ms]])]));
+      });
+    case 'expand':
+    case 'collapse':
+    case 'toggle':
+      return enqueue(async () => {
+        await ensureSession();
+        return parseEnvelope(await runCli([NATIVE_BATCH_COMMANDS.get(name), args.ref_id, ...flagArgs([['--timeout-ms', args.timeout_ms]])]));
+      });
+    case 'focus':
+    case 'double_click':
+    case 'right_click':
+      return enqueue(async () => {
+        await ensureSession();
+        // Engine fact on Windows (platform skill): right-click, double-click and
+        // focus are physical or take the desktop foreground, so they return
+        // POLICY_DENIED headless. --headed is scoped to THIS call, exactly like
+        // `type`; the conversation is never latched into physical input.
+        return parseEnvelope(await runCli([NATIVE_BATCH_COMMANDS.get(name), args.ref_id, ...flagArgs([['--timeout-ms', args.timeout_ms]])], { headed: true }));
       });
     case 'set_value':
       return enqueue(async () => parseEnvelope(await runCli(['set-value', args.ref_id, String(args.value ?? ''), ...flagArgs([['--timeout-ms', args.timeout_ms]])])));
@@ -467,13 +599,35 @@ async function callTool(name, args = {}) {
       if (!Array.isArray(commands) || commands.length < 1 || commands.length > MAX_BATCH) {
         return { content: [{ type: 'text', text: `batch needs 1-${MAX_BATCH} steps (got ${Array.isArray(commands) ? commands.length : 'non-array'}).` }], isError: true };
       }
+      const actions = commands.map((step) => String(step?.action || ''));
+      const unknown = actions.filter((action) => !NATIVE_BATCH_COMMANDS.has(action) && !LOOP_BATCH_ACTIONS.has(action));
+      if (unknown.length > 0) {
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, unknown, supported: [...NATIVE_BATCH_COMMANDS.keys(), ...LOOP_BATCH_ACTIONS] }) }], isError: true };
+      }
+      if (!actions.some((action) => LOOP_BATCH_ACTIONS.has(action))) {
+        // One engine process for the whole batch. Every CLI call costs ~85 ms of
+        // spawn plus UIA cold start, and the engine runs the same policy checks and
+        // dispatch per entry, so this is ~1.7x faster than the loop and keeps each
+        // entry's payload — a find step yields refs instead of "ok".
+        const entries = commands.map((step) => {
+          const action = String(step?.action || '');
+          return { command: NATIVE_BATCH_COMMANDS.get(action), args: batchEntryArgs(action, step?.arguments || {}) };
+        });
+        return enqueue(async () => {
+          await ensureSession();
+          const cli = ['batch', JSON.stringify(entries)];
+          if (args.stop_on_error !== false) cli.push('--stop-on-error');
+          if (args.timeout_ms !== undefined && args.timeout_ms !== null) cli.push('--timeout-ms', String(args.timeout_ms));
+          const envelope = parseEnvelope(await runCli(cli));
+          if (envelope.ok === true) envelope.data = trimBatchData(envelope.data);
+          return envelopeResult(envelope);
+        });
+      }
+      // type promotes the window to the foreground first, and screenshot/ocr own an
+      // adapter-side file path, so a batch containing them runs step by step.
       const results = [];
       for (const step of commands) {
         const action = String(step?.action || '');
-        if (!TOOLS_BY_NAME.has(action) || action === 'batch' || action === 'tools') {
-          results.push({ action, error: `unsupported step action: ${action}` });
-          break;
-        }
         const out = await callTool(action, step?.arguments || {});
         const envelope = out.structuredContent ?? out;
         results.push({ action, ok: envelope.ok === true, summary: summarizeEnvelope(envelope) });
@@ -565,6 +719,13 @@ function summarizeEnvelope(envelope) {
     const d = envelope.data ?? {};
     const bits = [];
     if (d.ref_count !== undefined) bits.push(`refs ${d.ref_count}`);
+    // A step that locates something is useless without the ref it found, and a
+    // read step without its value is the same. Report the payload, not just "ok".
+    if (d.match?.ref_id) bits.push(`ref ${d.match.ref_id}${d.match.name ? ` (${d.match.name})` : ''}`);
+    if (Array.isArray(d.matches) && d.matches.length) bits.push(`refs ${d.matches.slice(0, 8).map((m) => m.ref_id).join(',')}`);
+    if (d.snapshot_id) bits.push(`snapshot ${d.snapshot_id}`);
+    if (d.value !== undefined) bits.push(`value ${JSON.stringify(d.value)}`);
+    if (d.result !== undefined) bits.push(`result ${JSON.stringify(d.result)}`);
     if (d.window?.id) bits.push(`window ${d.window.id}`);
     if (d.target?.process?.pid) bits.push(`pid ${d.target.process.pid}`);
     if (d.disposition?.delivery) bits.push(`delivery ${d.disposition.delivery}`);
@@ -623,6 +784,7 @@ const INSTRUCTIONS = [
   'Verify stateful actions by re-read; delivered_verified = confirmed, delivered_unverified retry:unsafe = do not blind-repeat.',
   'On ACTION_FAILED post_action_verification the action landed: read data.post_state, do NOT retry.',
   'This host must run elevated (Administrator); lease_directory_untrusted means restart AryaCode as Administrator.',
+  'Esc (or the stop shortcut) stops the series: input tools then return COMPUTER_USE_STOPPED_BY_USER for this turn. Reads still work; do not retry input until a new user turn.',
   'Destructive actions (delete, send, pay, close unsaved) require user confirmation first.',
   'No accessibility tree (games/canvas): use ocr for text and headed mouse coordinates for input.',
 ].join('\n');
