@@ -231,12 +231,14 @@ parallel with the user's own pointer. Verified end to end on this machine, then 
   `data.pointer.foreground_changed` instead of assuming.
 
 ### Deployment state
-- **Released 2026-11-14.** `npm view @aryacode/dsh-plugin-arya-computer-use@1.0.7 version`
-  prints `1.0.7`; the market `catalog` branch records 1.0.7 with
-  sha256 `61dd3181e842ec5499834dd9defe2dc0f300d1a826ff132bc7a53c4347004732`, which is the
-  tarball npm serves (22 files, 108 KiB); `node scripts/check-catalogue-parity.mjs` exits 0
-  with "parity: 0 error(s)" and the row reads `1.0.7  1.0.7  ok`. The repository is on
-  `main` at commit `57b84d1`.
+- **Released 2026-11-14.** The market `catalog` branch records 1.0.8, the tarball npm
+  serves is the committed tree, and `node scripts/check-catalogue-parity.mjs` exits 0 with
+  "parity: 0 error(s)" and the row `@aryacode/dsh-plugin-arya-computer-use  1.0.8  1.0.8  ok`:
+  - 1.0.7 — the click ladder, consent-gated physical input, `launch` argv fix, 150 s engine
+    ceiling, lock_timeout retry; sha256 `61dd3181e842ec5499834dd9defe2dc0f300d1a826ff132bc7a53c4347004732`.
+  - 1.0.8 — settings copy (en + zh) and the schema description now say what the adapter
+    does: clicks never reach for the pointer, `type` needs `physical: true`; sha256
+    `58a2a53253c562031277b3c1268476724e2c27acc3f2a51dafd54511632d7dae`.
 - The live MCP tools keep the old adapter until AryaCode restarts (the lanes are mounted
   in-process by `index.js`), so a user who is already running AryaCode needs one restart.
   The installed profile was also hot-copied for this verification, byte-identical to the
