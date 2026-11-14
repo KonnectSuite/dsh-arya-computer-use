@@ -218,7 +218,7 @@ const fields = {
   stopShortcut: z.string().pattern(STOP_SHORTCUT_PATTERN).default('').description('Custom stop shortcut'),
   resumeToken: z.number().min(0).default(0),
   previewToken: z.number().min(0).default(0),
-  headedDefault: z.boolean().default(false).description('Send input with the real keyboard and mouse by default'),
+  headedDefault: z.boolean().default(false).description('Allow real keyboard and mouse input for the rest of the conversation (off: clicks stay semantic or posted)'),
   overlayDefault: z.boolean().default(true).description('Start the cursor overlay with each desktop session'),
   driverLockEnabled: z.boolean().default(true).description('One conversation drives the desktop at a time'),
   toolPreset: z.union(['lite', 'lazy'].map(value => z.const(value))).default('lite').description('Tool surface size: lite lists all 28 tools; lazy starts with tools/snapshot/click and reveals the rest on demand'),
