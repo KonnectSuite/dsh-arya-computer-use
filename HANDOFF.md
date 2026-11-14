@@ -230,8 +230,26 @@ parallel with the user's own pointer. Verified end to end on this machine, then 
   adapter left the pointer alone while the app may take focus itself — read
   `data.pointer.foreground_changed` instead of assuming.
 
+- **The retry is measured, not asserted.** `retrytest.mjs` held the exclusive desktop
+  lease for 8 s from a second process, then called `set_value` on the probe's `text-input`
+  through the adapter: the call returned `ok:true`, `delivery:"delivered_verified"`,
+  `auto_wait.lease_contention_count:176`, took 8036 ms (three refused engine attempts plus
+  backoff), and the following `get` read back `retry-ok`. Without `engineAction` that same
+  call is `TIMEOUT / details.kind:"lock_timeout"`.
+
 ### Deployment state
+- **Released 2026-11-14 (1.0.9).** The market `catalog` branch records 1.0.9, the tarball
+  npm serves is the committed tree, and the release script verified all four gates
+  (`released @aryacode/dsh-plugin-arya-computer-use@1.0.9 · npm ok · catalogue ok ·
+  sha256 71b44064fce0`). Parity row `@aryacode/dsh-plugin-arya-computer-use  1.0.9  1.0.9  ok`:
+  - 1.0.9 — `engineAction` retries a `lock_timeout` refusal twice with backoff for
+    `set_value`, `select`, `check`, `uncheck`, `clear`, `toggle`, `expand`, `collapse`,
+    `scroll_to`, `scroll`, `press` and the click alternatives; posted-click notes now say
+    the adapter left the pointer alone while the app may take focus itself; sha256
+    `71b44064fce0…`.
 - **Released 2026-11-14.** The market `catalog` branch records 1.0.8, the tarball npm
+  serves is the committed tree, and `node scripts/check-catalogue-parity.mjs` exits 0 with
+  "parity: 0 error(s)" and the row `@aryacode/dsh-plugin-arya-computer-use  1.0.8  1.0.8  ok`: The market `catalog` branch records 1.0.8, the tarball npm
   serves is the committed tree, and `node scripts/check-catalogue-parity.mjs` exits 0 with
   "parity: 0 error(s)" and the row `@aryacode/dsh-plugin-arya-computer-use  1.0.8  1.0.8  ok`:
   - 1.0.7 — the click ladder, consent-gated physical input, `launch` argv fix, 150 s engine
