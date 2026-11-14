@@ -231,8 +231,13 @@ parallel with the user's own pointer. Verified end to end on this machine, then 
   `data.pointer.foreground_changed` instead of assuming.
 
 ### Deployment state
-- Committed payload needs a version bump to 1.0.7 on npm + market catalogue
-  (`node ../dsh-arya-market/scripts/release-plugin.mjs`) and a restart before any user gets
-  it. The installed profile was hot-copied for this verification — a debug aid, not a release.
+- **Released 2026-11-14.** `npm view @aryacode/dsh-plugin-arya-computer-use@1.0.7 version`
+  prints `1.0.7`; the market `catalog` branch records 1.0.7 with
+  sha256 `61dd3181e842ec5499834dd9defe2dc0f300d1a826ff132bc7a53c4347004732`, which is the
+  tarball npm serves (22 files, 108 KiB); `node scripts/check-catalogue-parity.mjs` exits 0
+  with "parity: 0 error(s)" and the row reads `1.0.7  1.0.7  ok`. The repository is on
+  `main` at commit `57b84d1`.
 - The live MCP tools keep the old adapter until AryaCode restarts (the lanes are mounted
-  in-process by `index.js`).
+  in-process by `index.js`), so a user who is already running AryaCode needs one restart.
+  The installed profile was also hot-copied for this verification, byte-identical to the
+  published payload.
