@@ -153,3 +153,86 @@ Ask (m00001): verify the plugin end to end, explain why it does not feel faster/
 - **Gap found and fixed:** the plugin-hosted `index.json` (the `MARKET_INDEX_URL` jsDelivr serves) had stopped at **1.0.4** — 1.0.5 was never recorded there, so a host reading that index was told 1.0.4 was newest. Added 1.0.5 (`publishTimestamp 1794252476`) and 1.0.6 (`1794426570`) from the npm packument, pushed, and purged `https://purge.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json`; jsDelivr then served all five versions. Check this file in every release, not just the market catalog.
 - Pre-existing market warning, not ours: `@aryacode/dsh-client-ui-release-notes@0.2.1-rc.3` is on npm but unlistable (its published manifest carries a `workspace:`/`link:`/`file:` dependency).
 
+## 2026-11-14 — 1.0.7: clicks that do not take over the mouse and keyboard
+
+User report (m00001): "mouse clicks dont work unless it takes over the users mouse and
+keyboard", against the upstream promise (vercel-labs/agent-desktop) that computer use runs in
+parallel with the user's own pointer. Verified end to end on this machine, then fixed.
+
+### Three causes, each measured (not inferred)
+1. **The adapter forced physical input.** `focus`, `double_click` and `right_click` ran
+   `{headed:true}` on every call (old adapter-server.mjs:543-553) and `type` first ran
+   `ensureForeground` — a real `mouse-click --xy` at the element centre (:396-407) — because
+   the engine refuses physical delivery unless the target is already foreground:
+   `ACTION_FAILED "Target window did not become foreground before headed delivery",
+   details.physical_delivery_started:false` (measured on the fixture's double-target).
+   Raising the window was therefore the only way to type, and that is the takeover the user felt.
+2. **`click` had no background fallback.** The engine's click tries exactly two rungs —
+   `InvokePattern.Invoke`, then `LegacyIAccessible.DoDefaultAction`
+   (`dsh-arya-agent-desktop/crates/windows/src/actions/dispatch.rs:192-213`,
+   `chain.rs:123` "All chain steps exhausted"). Controls that expose neither (WinForms tree
+   rows, radios, list rows) therefore fail headless in every mode, and the agent's only
+   working path was physical input.
+3. **The desktop interaction lease is exclusive and `launch` holds it.** `crates/core/src/
+   commands/launch.rs:44` acquires the lease for the whole launch; `crates/windows/src/
+   system/launch.rs:39-41` polls for the window until `options.timeout_ms` (default 30000).
+   Measured: `launch Probe3.exe` returned after **30064 ms**; a click issued inside that
+   window returned `TIMEOUT details.kind:"lock_timeout" path ...\interaction.lock
+   purpose:"desktop interaction lease" contention_count:470` in a second adapter process,
+   while the live adapter's own click (no launch in flight) reported
+   `lease_contention_count:0, lease_hold_ms:267`. A lock_timeout used to end as "the click
+   did not work", and the next move was physical.
+
+### The fix (checkout is 1.0.7)
+- **`click` is a ladder, and it reports the rung** in `data.mechanism`:
+  engine semantic click → the control's own advertised action (`select` with the element's
+  own name / `toggle` / `expand` / `collapse`, chosen from the last snapshot's
+  `available_actions` + role) → a background `WM_*` posted click
+  (`mcp/quiet-input.mjs` → `scripts/quiet-input.ps1`, elevated: `ChildWindowFromPointEx`
+  descent from the snapshot's own hwnd, then `WM_MOUSEMOVE`/`WM_LBUTTONDOWN`/`WM_LBUTTONUP`,
+  `WM_RBUTTON*`, or `WM_LBUTTONDBLCLK`+up for a double). Nothing on that ladder moves the
+  cursor or the foreground; a lock_timeout refusal skips the engine rungs and posts.
+- **Physical input needs consent.** `physicalAllowed(args)` = `physical:true` on the call or
+  the conversation-wide `tools {operation:"headed",on:true}` latch; otherwise `physicalRefusal`
+  returns `POLICY_DENIED` with `details.kind:"physical_input_requires_consent"`. `runCli`
+  defaults to `headed:false`, so no call site can silently go physical. `promoteForPhysical`
+  (the old ensureForeground) now runs only on that consented path.
+- **Surface 22 → 28:** `select, check, uncheck, clear, scroll_to, focus_window` — the semantic
+  actions an agent needs instead of clicking, plus the approved way to raise a window.
+- **`launch` argv fixed** (`--arg` repeatable + `--timeout`; `--args`/`--timeout-ms` were
+  rejected by the engine: `INVALID_ARGS unexpected argument '--args' found`).
+- **`runCli` has a 150 s hard ceiling** and kills the engine, so a wedged engine cannot stall
+  the queue for the rest of the conversation.
+
+### Verification on this machine (2026-11-14)
+- Test target: `tests/fixture-app-windows` plus a purpose-built instrumented WinForms probe
+  (`.tmp-desktop-e2e/AryaDesktopProbe.exe`) whose log records cursor/foreground at the moment
+  of every UI event — an outside sampler cannot tell the user's own mouse from the agent's.
+- **21/21 steps passed** through the patched adapter (`e2e-report.json`): semantic clicks on
+  the primary button, a list row, a tab (legacy default action), a tree parent and the menu
+  button; posted clicks on a radio, two tree rows, a double-click and a right-click; then
+  `set_value`, `clear`, `select`, `check`, `uncheck`, `expand`, `collapse`, `scroll`; and
+  `type`/`focus`/`focus_window` refused with the new consent error. Every posted click
+  reported `pointer.cursor_moved:false, foreground_changed:false`, and the probe's own event
+  lines show the cursor never leaving the user's position.
+- **Installed copy verified** (spawned straight from
+  `%USERPROFILE%\.aryacode\profiles\desktop\node_modules\@aryacode\dsh-plugin-arya-computer-use`):
+  28 tools, `click` → `mechanism:"semantic"`, `type` → `POLICY_DENIED
+  kind:physical_input_requires_consent`.
+- Repeated UIA foreground noise on WinForms is the toolkit's own behaviour, not the adapter:
+  the probe logs `act:Deactivate`/`act:Activated` around a semantic scroll while its cursor
+  sample stays put.
+
+- **Contention is retried, not reported first.** `runEngineAction`-style retry
+  (`engineAction` in `mcp/adapter-server.mjs`) retries a `lock_timeout` refusal twice with
+  backoff (800/1600/3200 ms) before the click ladder answers it, so one `launch` in flight
+  no longer turns the next action into `TIMEOUT`. The posted-click notes now say the
+  adapter left the pointer alone while the app may take focus itself — read
+  `data.pointer.foreground_changed` instead of assuming.
+
+### Deployment state
+- Committed payload needs a version bump to 1.0.7 on npm + market catalogue
+  (`node ../dsh-arya-market/scripts/release-plugin.mjs`) and a restart before any user gets
+  it. The installed profile was hot-copied for this verification — a debug aid, not a release.
+- The live MCP tools keep the old adapter until AryaCode restarts (the lanes are mounted
+  in-process by `index.js`).

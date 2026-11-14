@@ -33,10 +33,36 @@ Replaces [dsh-computer-use-win](https://github.com/Yu-tao-Li/dsh-computer-use-wi
 | 0 | Evaluation spike: raw `agent-desktop mcp` row, drive Notepad/Explorer/Chrome — speed ✓, readable trees ✓, refs-not-pixels ✓ | ✅ accepted, spike removed |
 | 1 | Adapter MCP server: Lite 22 tools, per-conversation session lifecycle, headed toggle + foreground promotion, screenshot→file path, WinRT OCR, skill | ✅ built, installed, driven in-host |
 | 2 | Takeover UI: window rim + banner + Esc kill, configurable ghost cursor, settings page, chat step rows, driver lock, English UI | ✅ built + verified live |
+| 2.1 | Clicks that never touch your mouse: semantic rung, the control's own action, then a background posted click; `select`/`check`/`uncheck`/`clear`/`scroll_to`/`focus_window` added; physical input behind an explicit opt-in; launch argv fixed | ✅ verified on a 21-step live matrix 2026-11-14 |
 | 3 | Web lane (`arya_browser` row), sign-in profiles, attach-to-your-Chrome, **wincu retirement** | planned |
 | 4 | Lazy preset, notifications/clipboard/trace, npm publish | planned |
 
-Lite 22 tool surface: `snapshot, find, get, is, click, focus, double_click, right_click, expand, collapse, toggle, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools` (superset of wincu Lite 12; `set_value` fills a field through the accessibility value pattern without touching the pointer — **the headless text path, use it for text entry**; `expand`/`collapse`/`toggle` are semantic UIA patterns and stay headless; `focus`, `double_click` and `right-click` have no headless path on Windows, so each one drives the real pointer for that single call and never latches the conversation; `type` likewise synthesizes real keystrokes, which on Windows is physical input; `tools` manages headed/overlay/session state).
+Lite 28 tool surface: `snapshot, find, get, is, click, select, check, uncheck, clear, scroll_to, focus, focus_window, double_click, right_click, expand, collapse, toggle, set_value, type, press, scroll, list_windows, launch, wait, screenshot, ocr, batch, tools`.
+
+**Nothing moves your mouse unless you say so.** `click` picks the delivery rung
+that works for that control and reports it in `data.mechanism`:
+
+| mechanism | what happened | your pointer / foreground |
+| --- | --- | --- |
+| `semantic` | the control ran its own UIA pattern (Invoke or Legacy default action) | untouched |
+| `select` `toggle` `expand` `collapse` | click refused; the control's own advertised action did it | untouched |
+| `post_message` | a mouse message posted straight to the control's window | untouched |
+| `physical_synthetic` | a real OS click at the element centre — only when physical input is opted in | moves both |
+
+A refusal caused by the exclusive desktop interaction lease (`TIMEOUT` /
+`details.kind: "lock_timeout"`) is not a verdict: the adapter retries the engine
+call twice with backoff before the ladder answers it.
+
+`set_value` fills a field through the accessibility value pattern (the headless
+text path). `select`/`check`/`uncheck`/`clear`/`scroll_to`/`toggle`/`expand`/
+`collapse` are semantic engine commands and stay headless. `type`, `focus`,
+`focus_window` and a `physical: true` click synthesise real input: each needs
+`physical: true` on the call (or the conversation-wide
+`tools {operation:"headed",on:true}` opt-in, 5 minutes) and otherwise refuses
+with `POLICY_DENIED` / `details.kind: "physical_input_requires_consent"`.
+`double_click` and `right_click` are posted in the background by default and
+physical only with consent. `tools` manages the opt-in, overlay and session
+state.
 
 Full plan: [docs/PLAN.md](docs/PLAN.md).
 
@@ -47,7 +73,9 @@ package.json          Cordis bundle manifest (dsh.bundle.patch) + pinned engine 
 cordis.patch.yml      rows: arya-computer-use (Host), mcp-arya-desktop, mcp-arya-browser
 index.js              Host plugin entry (settings, driver lock, takeover mgmt, status route)
 client.js             Settings page + chat step rows (client plugin)
-mcp/adapter-server.mjs  adapter MCP server (Lite 22 tool surface)
+mcp/adapter-server.mjs  adapter MCP server (Lite 28 tool surface)
+mcp/quiet-input.mjs   driver for the background posted click (no cursor, no foreground)
+scripts/quiet-input.ps1  posted WM_* click helper; elevated, caches its compiled DLL
 scripts/windows-takeover.cs  window rim + banner + progress + ghost cursor + global Esc
 scripts/ocr.ps1       WinRT OCR helper (Phase 1)
 skills/arya-desktop/  observe-act loop guide (Phase 1)
@@ -77,11 +105,11 @@ The published package is `@aryacode/dsh-plugin-arya-computer-use` (npm, public).
 | Show a ghost cursor | on | Draw a synthetic cursor where the agent acts; your pointer is never followed |
 | Agent name | `Arya` | Drives the ghost-cursor tag and the progress-panel header (`Arya · Step 3 · acting`), 1–16 characters |
 | Banner text | `Arya is controlling your computer` | One line, 1–120 characters |
-| Real mouse and keyboard | off | Opted-in headed input for one conversation: **every** action then drives the real pointer and keyboard. It releases on `session_end` and expires after 5 minutes. Text entry never needs it — `set_value` is headless; `type` is physical on its own. |
+| Real mouse and keyboard | off | Opts the conversation into physical input for 5 minutes (`session_end` releases it): clicks that need it become real OS clicks, `type`/`focus`/`focus_window` stop refusing. Off, `click` still works — it uses the control's own UIA pattern, its own advertised action, or a background posted click, and never moves your pointer. |
 | One conversation drives at a time | on | Refuses desktop tools in other conversations while a drive is live |
 | Progress panel detail | `summary` | What the on-screen step panel prints: `summary` = short action lines, `source` = the assistant's raw text stream (the old default — it paints model text on your desktop) |
 | Stop shortcut | Esc | Global kill switch; synthetic keystrokes are ignored, so it needs a real keypress. It now also gates the driver: desktop input tools return `COMPUTER_USE_STOPPED_BY_USER` for that turn (reads keep working) |
-| Tool preset | `lite` | `lite` lists all 22 desktop tools; `lazy` starts with tools/snapshot/click and reveals the rest on demand |
+| Tool preset | `lite` | `lite` lists all 28 desktop tools; `lazy` starts with tools/snapshot/click and reveals the rest on demand |
 | Tool surface (web) | `core` | agent-browser tool profile: core 29, network 9, state 27, debug 40, tabs 13, react 8, mobile 15, webmcp 4, all 156 |
 | Chrome profile / Session | – / `arya` | Reuse a Chrome login state and name the browser session |
 | Connect to my browser | – | `--cdp` port or URL to attach to a Chrome you already have open |

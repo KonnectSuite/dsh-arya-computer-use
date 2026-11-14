@@ -50,6 +50,23 @@ is not listed ships nothing at all.
    the action landed — read the new state instead of repeating it.
 6. **Never claim a capability from a mode switch alone.** The takeover overlay and the
    ghost cursor are presentation; the engine doing the work is what makes a step real.
+7. **No physical input without consent — and no reasoning that needs it.** The user's
+   mouse and keyboard are theirs: `runCli` defaults to headless, and `--headed` is passed
+   only by call sites that checked `physicalAllowed(args)` (`physical: true` on the call,
+   or `tools {operation:"headed",on:true}`). `click` therefore climbs a ladder —
+   engine semantic click → the control's own advertised action (`select`/`toggle`/
+   `expand`/`collapse`) → a background `WM_*` posted click (`mcp/quiet-input.mjs`,
+   no cursor movement, no foreground change) — and reports which rung it used in
+   `data.mechanism`. Do not add a rung that raises the window: the Windows foreground
+   lock means physical delivery only works on a window that is already foreground, so
+   raising it is precisely the defect this contract removes.
+8. **One engine action drives the desktop at a time.** The interaction lease is exclusive
+   for the whole of `launch` (up to its `timeout_ms`, 30 s default) and a refused call
+   comes back `TIMEOUT` / `details.kind: "lock_timeout"`. That is contention, not a
+   broken click: the adapter skips engine-based alternatives on it and posts the click.
+   Never diagnose a click from a single lock_timeout sample. `engineAction` retries a
+   refused engine call twice with backoff (800/1600/3200 ms) before the ladder answers,
+   so contention that reaches a tool result has already lasted several seconds.
 
 ## Releasing
 

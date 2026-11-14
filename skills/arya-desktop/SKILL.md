@@ -1,6 +1,6 @@
 ---
 name: arya-desktop
-description: Drive Windows desktop applications through semantic UIA refs (snapshot -> act -> verify) with the arya_desktop MCP tools: click, set_value, type, press, scroll, find, launch, windows, OCR fallback, batch. Use when asked to operate a native app (Notepad, Explorer, Office, Studio 5000, RSLogix, FTView, MotionWorks, any Win32/XAML window).
+description: Drive Windows desktop applications through semantic UIA refs (snapshot -> act -> verify) with the arya_desktop MCP tools: click, select, check, toggle, expand, set_value, type, press, scroll, find, launch, windows, OCR fallback, batch. Clicks and keystrokes run in the background and never move the user's mouse or take the foreground unless physical input is explicitly opted into. Use when asked to operate a native app (Notepad, Explorer, Office, Studio 5000, RSLogix, FTView, MotionWorks, any Win32/XAML window).
 whenToUse: Any task that requires seeing or controlling a Windows desktop application.
 ---
 
@@ -17,12 +17,17 @@ Screenshots are evidence, not input.
    Chromium-based windows (Chrome, Electron, Obsidian, VS Code webviews) start
    thin and grow: pass `timeout_ms: 10000`–`25000` and re-snapshot after the
    first contact.
-2. **Act** — one action on one ref: `click`, `set_value`, `type`, `press`,
-   `scroll`. **Use `set_value` for every text entry**: it writes through the
-   accessibility value pattern, headless, and never touches the pointer. `type`
-   synthesizes real keystrokes — on Windows that is physical input, so it moves
-   the pointer and briefly focuses the window. It is the last resort, only for
-   an edit that rejects `set_value`.
+2. **Act** — one action on one ref: `click`, `select`, `check`/`uncheck`,
+   `toggle`, `expand`/`collapse`, `set_value`, `clear`, `scroll`, `scroll_to`,
+   `focus`. **Prefer the action the control advertises** (`available_actions`
+   in the snapshot): `select` names an option, `check` sets a box without
+   toggling it off, `expand` opens a tree node — each is one headless call and
+   none of them touches the pointer.
+   **Use `set_value` for every text entry**: it writes through the
+   accessibility value pattern, headless, and never touches the pointer.
+   `type` synthesizes real keystrokes, which is physical input, so it needs
+   `physical: true` and moves the pointer and briefly focuses the window. It is
+   the last resort, only for an edit that rejects `set_value`.
 3. **Verify** — re-`snapshot` (or `get`/`is` on the ref). The envelope tells
    you what happened:
    - `delivered_verified` — confirmed by readback.
@@ -31,8 +36,31 @@ Screenshots are evidence, not input.
    - `ACTION_FAILED` with `details.kind: post_action_verification` — the action
      LANDED, the readback differs. Read `details.post_state`; do NOT retry.
    - `STALE_REF` / `AMBIGUOUS_TARGET` — re-snapshot; refs die when the window
-     changes. Identical twins (same control twice) refuse refs: pick with
-     headed `click` at coordinates after `tools {operation:"headed",on:true}`.
+     changes. Identical twins (same control twice) refuse refs: use a posted
+     click (`click` on the twin falls back to it) or, if even that is refused,
+     a coordinate click with `physical: true` after the user agrees.
+
+## How a click is delivered
+
+`click` picks the delivery rung itself and tells you which one it used in
+`data.mechanism`:
+
+| mechanism | what happened | pointer / foreground |
+| --- | --- | --- |
+| `semantic` | the control ran its own UIA pattern (Invoke or Legacy default action) | untouched |
+| `select` / `toggle` / `expand` / `collapse` | the click was refused, the control's own advertised action did the job | untouched |
+| `post_message` | a mouse message was posted straight to the control's window | untouched |
+| `physical_synthetic` | a real OS click at the element centre — only with `physical: true` | moves both |
+
+So a click on a background window normally lands without the user's cursor
+moving. When it lands by fallback and could not be verified, the result says
+`delivered_unverified` and carries `data.fallback_from` (why the semantic rung
+refused) — **re-read the control to confirm** instead of clicking again.
+
+`double_click` and `right_click` are posted in the background by default; with
+`physical: true` they are real OS clicks. `focus` and `focus_window` are
+physical by nature (Windows SetFocus/foreground), so both require
+`physical: true` and say so when they refuse.
 
 ## Rules that keep you safe
 
@@ -41,30 +69,35 @@ Screenshots are evidence, not input.
   observes once).
 - **Elevation.** This host must run as Administrator. If you see
   `lease_directory_untrusted`, tell the user: restart AryaCode as Administrator.
-- **Headed toggle.** Default is headless (no mouse/keyboard takeover): semantic
-  UIA input goes straight to the control and never moves the user's pointer.
-  Headed is an **escape hatch for surfaces that refuse background input**
-  (notifications, start menu, tray, right-click, drag, double-click). It is not
-  the answer to a text field — `set_value` does that headless. Turning it on
-  makes **every** action in this conversation physical: clicks move the real
-  pointer, keystrokes go to the foreground window. So: warn the user before
-  switching it on, call `tools {operation:"headed",on:false}` when the surface
-  is done, and end with `tools {operation:"session_end"}`, which releases it.
-  A latch left on also expires by itself after 5 minutes.
+- **The user's mouse and keyboard are not yours.** Nothing moves the pointer or
+  takes the foreground unless you opt in: `physical: true` on one call, or
+  `tools {operation:"headed",on:true}` for the whole conversation (5 minutes,
+  cleared by `session_end`). Physical input is for surfaces that cannot be
+  driven any other way (notifications, start menu, tray, drag, canvas apps,
+  a control that refuses every semantic rung). It is never the answer to a text
+  field — `set_value` does that. Warn the user before you opt in.
+- **A busy interaction lease is not a failure of your click.** Only one engine
+  action can drive the desktop at a time, and `launch` holds that lease until
+  the new window settles (up to its `timeout_ms`, 30 s by default). Right after
+  a launch you may see `TIMEOUT` / `details.kind: "lock_timeout"`; `click`
+  answers it with a posted click, and every other action retries the engine twice
+  with backoff (800/1600/3200 ms) before it reports contention, so a
+  `lock_timeout` that reaches you means the lease stayed busy. Pass a smaller
+  `timeout_ms` to `launch` when the window appears quickly.
 - **Launch.** Bare names resolve only under System32 (`notepad` works,
   `chrome` does not). Use the absolute exe path. If many instances run, the
   engine refuses to guess — that is correct; ask the user.
 - **Destructive actions** (delete, send, pay, submit, close unsaved work,
   kill processes) require the user's confirmation first.
 - **No UIA tree** (games, canvas UIs, remote desktops): `ocr` reads text with
-  screenshot pixel coordinates; headed clicks at those coordinates are the
+  screenshot pixel coordinates; a coordinate click with `physical: true` is the
   fallback. OCR hits are not refs.
 - **Web pages are not in the UIA tree.** Chrome/Electron page content needs
   the `arya_browser` lane (agent-browser MCP) — use `mcp__arya_browser__*`
   tools for anything inside a web page.
 - **Menus:** expand a menuitem (`click` on a `haspopup` item, or `expand`),
   then snapshot the menu surface. Win32/WPF/Chromium menus are detected;
-  WinUI3/MSIX menus may not be — fall back to OCR + headed click.
+  WinUI3/MSIX menus may not be — fall back to `ocr` plus a `physical: true` click.
 - **End your turn clean:** when finished driving, call
   `tools {operation:"session_end"}` so the driver session and overlay release.
 
@@ -75,4 +108,4 @@ Screenshots are evidence, not input.
 - Screenshots land in files (paths returned in results) — open them with the
   read tool when you need the picture.
 - `tools {operation:"list"}` shows the tool surface and current state
-  (session, headed, overlay).
+  (session, headed latch, overlay).
