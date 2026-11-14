@@ -405,6 +405,22 @@ function leaseBusy(envelope) {
   return summary?.kind === 'lock_timeout' ? summary : null;
 }
 
+// Contention is transient by nature: a launch holds the exclusive lease until
+// the window it started is observed. Retry a refused engine action a couple of
+// times before reporting it, so a busy lease never reads as a broken action.
+const LEASE_RETRY_DELAYS_MS = [800, 1600, 3200];
+
+async function engineAction(argv, { headed = false, retries = 2 } = {}) {
+  let envelope = parseEnvelope(await runCli(argv, { headed }));
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    if (envelope.ok === true || leaseBusy(envelope) === null) break;
+    const delay = LEASE_RETRY_DELAYS_MS[Math.min(attempt, LEASE_RETRY_DELAYS_MS.length - 1)];
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    envelope = parseEnvelope(await runCli(argv, { headed }));
+  }
+  return envelope;
+}
+
 // Physical pointer delivery at the element centre: one real OS click, which also
 // raises the target window as a side effect. mouse-click has no --timeout-ms.
 async function physicalPointer(command, refId) {
@@ -445,7 +461,7 @@ async function postedPointer(command, refId, mode) {
         disposition: { delivery: 'delivered_unverified', retry: 'unsafe' },
         pointer: { cursor_moved: report.cursor_moved === true, foreground_changed: report.foreground_changed === true },
         target: report.target ?? null,
-        note: 'Background click: posted to the control window, so the user’s mouse and foreground were left alone. Verify by re-reading the control; delivered_unverified means nothing saw the result yet.',
+        note: 'Background click: posted to the control window, so the adapter never moved the pointer or raised the window. The app can still take focus itself while it handles the message, so read pointer.foreground_changed. Verify by re-reading the control; delivered_unverified means nothing saw the result yet.',
       },
     },
     report,
@@ -458,7 +474,7 @@ async function trySemanticAlternatives(refId, timeoutMs) {
   if (!record) return { envelope: null, attempted, mechanism: null };
   const flags = flagArgs([['--timeout-ms', timeoutMs]]);
   const run = async (command, extra = []) => {
-    const envelope = parseEnvelope(await runCli([command, refId, ...extra, ...flags]));
+    const envelope = await engineAction([command, refId, ...extra, ...flags], { retries: 1 });
     attempted.push({ command, ok: envelope.ok === true, code: envelope.error?.code });
     return envelope.ok === true ? envelope : null;
   };
@@ -795,10 +811,10 @@ async function callTool(name, args = {}) {
         if (posted.envelope) {
           if (fallbackFrom) posted.envelope.data.fallback_from = fallbackFrom;
           if (leaseHeld) {
-            posted.envelope.data.note = 'The engine could not take the desktop interaction lease (another action holds it), so the click was posted to the control window instead: the user\'s mouse and foreground were left alone.';
+            posted.envelope.data.note = 'The engine could not take the desktop interaction lease (another action holds it), so the click was posted to the control window instead: the adapter never moved the pointer or raised the window. The app can still take focus itself while it handles the message, so read data.pointer.foreground_changed.';
           } else if (physicalFailure) {
             posted.envelope.data.physical_failed = { code: physicalFailure.code ?? null, kind: physicalFailure.details?.kind ?? null };
-            posted.envelope.data.note = `The physical click you asked for did not run (${physicalFailure.code ?? 'failed'}), so the click was posted to the control window instead: the user's mouse and foreground were left alone.`;
+            posted.envelope.data.note = `The physical click you asked for did not run (${physicalFailure.code ?? 'failed'}), so the click was posted to the control window instead: the adapter never moved the pointer. The app can still take focus itself while it handles the message, so read data.pointer.foreground_changed.`;
           }
           return posted.envelope;
         }
@@ -813,7 +829,7 @@ async function callTool(name, args = {}) {
     case 'select':
       return enqueue(async () => {
         await ensureSession();
-        return parseEnvelope(await runCli(['select', args.ref_id, String(args.value ?? ''), ...flagArgs([['--timeout-ms', args.timeout_ms]])]));
+        return engineAction(['select', args.ref_id, String(args.value ?? ''), ...flagArgs([['--timeout-ms', args.timeout_ms]])]);
       });
     case 'expand':
     case 'collapse':
@@ -824,7 +840,7 @@ async function callTool(name, args = {}) {
     case 'scroll_to':
       return enqueue(async () => {
         await ensureSession();
-        return parseEnvelope(await runCli([NATIVE_BATCH_COMMANDS.get(name), args.ref_id, ...flagArgs([['--timeout-ms', args.timeout_ms]])]));
+        return engineAction([NATIVE_BATCH_COMMANDS.get(name), args.ref_id, ...flagArgs([['--timeout-ms', args.timeout_ms]])]);
       });
     case 'focus':
       return enqueue(async () => {
@@ -858,7 +874,7 @@ async function callTool(name, args = {}) {
           if (physicalFailure) {
             posted.envelope.data.physical_failed = { code: physicalFailure.code ?? null, kind: physicalFailure.details?.kind ?? null };
             posted.envelope.data.note = leaseBusy(physicalFailure)
-              ? `${LEASE_BUSY_NOTE} The ${name === 'right_click' ? 'right-click' : 'double-click'} was posted to the control window instead, so the user's mouse and foreground were left alone.`
+              ? `${LEASE_BUSY_NOTE} The ${name === 'right_click' ? 'right-click' : 'double-click'} was posted to the control window instead: the adapter never moved the pointer, and the app can still take focus itself while it handles the message.`
               : `The physical click you asked for did not run (${physicalFailure.code ?? 'failed'}), so the ${name === 'right_click' ? 'right-click' : 'double-click'} was posted to the control window instead.`;
           }
           return posted.envelope;
@@ -885,7 +901,7 @@ async function callTool(name, args = {}) {
         return raised;
       });
     case 'set_value':
-      return enqueue(async () => parseEnvelope(await runCli(['set-value', args.ref_id, String(args.value ?? ''), ...flagArgs([['--timeout-ms', args.timeout_ms]])])));
+      return enqueue(async () => engineAction(['set-value', args.ref_id, String(args.value ?? ''), ...flagArgs([['--timeout-ms', args.timeout_ms]])]));
     case 'type':
       return enqueue(async () => {
         await ensureSession();
@@ -912,10 +928,10 @@ async function callTool(name, args = {}) {
     case 'press':
       return enqueue(async () => {
         await ensureSession();
-        return parseEnvelope(await runCli(['press', args.combo, ...flagArgs([['--app', args.app], ['--window-id', args.window_id], ['--force', args.force]])]));
+        return engineAction(['press', args.combo, ...flagArgs([['--app', args.app], ['--window-id', args.window_id], ['--force', args.force]])], { retries: 1 });
       });
     case 'scroll':
-      return enqueue(async () => parseEnvelope(await runCli(['scroll', args.ref_id, ...flagArgs([['--direction', args.direction], ['--amount', args.amount], ['--timeout-ms', args.timeout_ms]])])));
+      return enqueue(async () => engineAction(['scroll', args.ref_id, ...flagArgs([['--direction', args.direction], ['--amount', args.amount], ['--timeout-ms', args.timeout_ms]])]));
     case 'list_windows':
       return enqueue(async () => parseEnvelope(await runCli(['list-windows', ...flagArgs([['--app', args.app], ['--timeout-ms', args.timeout_ms]])])));
     case 'launch': {
