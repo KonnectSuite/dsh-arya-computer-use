@@ -333,8 +333,8 @@ conversation client was being applied twice.
   **in any userData directory, including a fresh temp one**, and starts clean with that switch —
   so it is the confined shell blocking Chromium's sandboxed children, not a locked or badly
   ACL'd directory. Verification-environment switch only; it touches nothing in the plugin.
-- **Still to do:** `node ../dsh-arya-market/scripts/release-plugin.mjs --dir ../dsh-arya-computer-use`
-  and record the published digest here.
+- **Published 2026-11-16: 1.0.10** from commit `a5d18f8`. `node ../dsh-arya-market/scripts/release-plugin.mjs --dir ../dsh-arya-computer-use` exits 0 — npm ok (tag `latest`), the `catalog` branch records 1.0.10, `check-catalogue-parity.mjs` exit 0. Published tarball **sha256 `e644c53b3bbb10d4dac8f4c8fb4e34af550b067123b424596dcc44464a23b5a6`** (22 files, 111.6 kB packed / 368.2 kB unpacked, npm shasum `a590fd91d69c909fb9cb2aa96271261335b8c20f`). Live catalogue: https://raw.githubusercontent.com/KonnectSuite/dsh-arya-market/catalog/data/arya-plugins.json
+  - First run published but timed out its 180 s registry wait during npm propagation and exited 1 before the catalogue gates; the re-run reported "already on the registry with these exact bytes — nothing to publish" and finished. That is the script's intended resume, not a double publish.
 - **Lesson for any future client half:** never register `tool.call.toolview` under a bare
   name. `dsh-client-ui-tool` keys that slot by wire Tool name and first-party owns the bare
   ones (`read`, `edit`, `write`, `apply_patch`, `grep`, `present`, `skill`, `schedule_*`,
