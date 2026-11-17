@@ -135,9 +135,12 @@ export function browserArgs(settings = {}) {
   if (session) args.push('--session', session);
   if (state) args.push('--state', state);
   // Edge-only machines: agent-browser's auto-launch finds its own cache and
-  // system Chrome, not Edge (issue #1 report). The global --executable-path
-  // flag (and its AGENT_BROWSER_EXECUTABLE_PATH env) points the launch at any
-  // Chromium-family exe the user names.
+  // system Chrome, not Edge (issue #1 report). Measured 2026-11-17: in CLI mode
+  // the --executable-path flag works in either position, but in `mcp` server
+  // mode the daemon IGNORES the flag (both positions opened its own Chrome)
+  // and honors the AGENT_BROWSER_EXECUTABLE_PATH env instead — main() sets it.
+  // The flag stays here for CLI-mode runs and as a visible marker; a daemon
+  // command line carrying it is not proof the path took effect.
   if (executablePath) args.push('--executable-path', executablePath);
   if (settings.browserHeaded === true) args.push('--headed');
   return args;
@@ -148,9 +151,16 @@ function main() {
   const args = browserArgs(settings);
   const flagKeys_ = flagKeys(text(settings.browserToolFlags));
   const native = nativeBin();
+  // The daemon takes the browser executable from the environment. Measured
+  // 2026-11-17: `mcp` server mode ignores the --executable-path flag in both
+  // positions (its own Chrome opened either way) and honors
+  // AGENT_BROWSER_EXECUTABLE_PATH instead (msedge processes rose 5 to 21).
+  const env = { ...process.env };
+  const executablePath = text(settings.browserExecutablePath);
+  if (executablePath) env.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;
   const child = native
-    ? spawn(native, args.slice(1), { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
-    : spawn(process.execPath, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    ? spawn(native, args.slice(1), { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env })
+    : spawn(process.execPath, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env });
   child.on('error', (error) => {
     process.stderr.write(`arya browser lane: could not start agent-browser: ${error.message}\n`);
     process.exit(1);

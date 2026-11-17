@@ -386,13 +386,40 @@ no Edge detection (grep msedge: 0 hits in agent-browser 0.41.2).
 
 Fix: a **Browser executable path** setting (`browserExecutablePath`, absolute
 path, default empty) threaded host schema (index.js) -> settings store
-(mcp/settings.mjs) -> web-lane launcher (mcp/browser-launcher.mjs passes
-`--executable-path`) -> settings page row with en+zh copy. Empty keeps the old
-behaviour. Measured proof: with the flag and a fresh daemon namespace the lane
-launched Edge (msedge 5 -> 19); the daemon resolves the browser at daemon start,
-so the flag matters at spawn time, which is exactly what the launcher controls.
-The env-var route (AGENT_BROWSER_EXECUTABLE_PATH) exists too; the flag is the
-one the launcher owns.
+(mcp/settings.mjs) -> web-lane launcher (mcp/browser-launcher.mjs) -> settings
+page row with en+zh copy. Empty keeps the old behaviour.
+
+Measured mechanism (agent-browser 0.41.2, 2026-11-17, tests gate2c-*.mjs in
+KonnectSuite/.tmp-verify): the engine reads the browser in two different ways
+depending on mode. In CLI mode (`agent-browser open …`) the
+`--executable-path` flag works in either argument position (msedge 5 -> 19,
+12 -> 26). In `mcp` server mode the daemon IGNORES the flag in both positions
+(both opened its own Chrome) and honors the `AGENT_BROWSER_EXECUTABLE_PATH`
+env var instead (msedge 5 -> 21, clean open, fresh profile dir). So
+browser-launcher main() sets that env var on the daemon spawn; the flag stays
+in browserArgs for CLI-mode runs, but **a daemon command line carrying the
+flag is not proof the path took effect** — proof is behavioral (msedge count
+rises, open text has no "warning: Chrome").
+
+Trap found the hard way: a test launcher joined the OLD dev daemon (same
+package path, default namespace, spawned before the fix) and the env var never
+reached the daemon handling the open; the open failed with `Chrome exited
+early (exit code: 0) without writing DevToolsActivePort` — the handoff
+signature. Daemons in the default namespace coexist when their package paths
+differ (production 2108 vs dev 18960), so a join is keyed by path, not just
+namespace. Re-test against a daemon spawned WITH the env, not one that was
+already up.
+
+Headed gap (measured, NOT shipped): `--headed` is also ignored in mcp mode
+(both positions); `AGENT_BROWSER_HEADED=1` IS honored (launch behavior
+changes) but the headed launch fails on this machine for both Edge and
+agent-browser's own Chrome (`exited early (exit code: 0)`, hint
+`--args "--no-sandbox"`), likely single-instance handoff with 29 chrome + 5
+msedge processes already running. Shipping AGENT_BROWSER_HEADED for the
+browserHeaded setting would turn today's silent-headless into a hard error,
+so it stays a follow-up; callers can still pass headed per call to
+agent_browser_open. browserCdp/browserSession/browserProfile/browserStateFile
+flags after `mcp`: respect unknown, left flag-only (settings are empty).
 
 Gate-2 note for the next pass: the dev host must set the Edge path in the plugin
 settings and one web-lane call must launch Edge, not Chrome.

@@ -5,8 +5,9 @@ Release notes for every version also live on the [Releases page](https://github.
 
 ## 1.0.11 — 2026-11-17
 
-- New setting **Browser executable path**: an absolute path to `msedge.exe`, `chrome.exe`, `brave.exe` … that the web lane launches when it starts its own browser, passed to agent-browser as `--executable-path`. Reported by shuning0128 in [issue #1](https://github.com/KonnectSuite/dsh-arya-computer-use/issues/1): agent-browser's auto-launch checks its own download cache and system Chrome only, so a machine with Edge and no Chrome gets `Auto-launch failed: Chrome not found`. Empty keeps the old behaviour.
-- Measured on this machine: with the flag set and a fresh daemon namespace, the web lane launched Edge (msedge process count 5 → 19); the setting validates as an absolute path in the settings page and in the host schema.
+- New setting **Browser executable path**: an absolute path to `msedge.exe`, `chrome.exe`, `brave.exe` … that the web lane launches when it starts its own browser. Reported by shuning0128 in [issue #1](https://github.com/KonnectSuite/dsh-arya-computer-use/issues/1): agent-browser's auto-launch checks its own download cache and system Chrome only, so a machine with Edge and no Chrome gets `Auto-launch failed: Chrome not found`. Empty keeps the old behaviour.
+- The path reaches the daemon as the `AGENT_BROWSER_EXECUTABLE_PATH` env var on the daemon spawn. Measured on this machine (agent-browser 0.41.2): in `mcp` server mode the daemon **ignores** the `--executable-path` flag (both argument positions opened its own Chrome) and honors the env var instead (msedge process count 5 → 21, clean page open); in CLI mode the flag works in either position. The flag is still passed for CLI-mode runs, but a daemon command line carrying it is not proof the path took effect.
+- The setting validates as an absolute path in the settings page and in the host schema.
 
 ## 1.0.10 — 2026-11-17
 
