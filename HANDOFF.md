@@ -339,3 +339,36 @@ conversation client was being applied twice.
   name. `dsh-client-ui-tool` keys that slot by wire Tool name and first-party owns the bare
   ones (`read`, `edit`, `write`, `apply_patch`, `grep`, `present`, `skill`, `schedule_*`,
   `*_goal`, …). A third-party plugin's keys must carry its own `mcp__…` prefix.
+## Publishing front: the stale listing, tags, releases, README (2026-11-17)
+
+Issue #1's fix shipped as 1.0.10, and the reporter's screenshots showed the market card
+stuck at 1.0.8 while the installed page read 1.0.10. Measured cause, three listings, three
+cadences: the authoritative catalog branch and npm were correct at 1.0.10; the community
+crawler entry lagged at 1.0.9; the plugin's own index.json - the listing the README tells
+users to add and index.js self-registers - had stopped at 1.0.6, hand-kept, timestamps
+drifting (1.0.5 recorded a full day early). Nothing in the release process touched it.
+
+What changed:
+- CHANGELOG.md: one entry per published version, 1.0.10 to 1.0.0 (gate-1), npm publish
+  times as dates.
+- scripts/sync-market-index.mjs: rebuilds index.json from npm's publish times; the release
+  command runs it, commits it, and cuts the v<version> tag AFTER that commit - a tag-pinned
+  jsDelivr URL serves the tag's tree forever, so the tag must carry the fresh listing.
+- release-plugin.mjs (dsh-arya-market 71a3115): tag + push + gh release create with the
+  CHANGELOG entry as notes, non-fatal (a missing gh never undoes a published npm version);
+  --no-github skips. AGENTS-PLUGINS.md gates 1 and 4 updated to match.
+- Tags v1.0.2..v1.0.10 and nine GitHub releases created (notes-only; the catalog keeps
+  pointing at npm tarballs - validateAryaRegistry accepts both, every entry uses npm).
+- index.js MARKET_INDEX_URL: @main -> @latest. @main is a branch URL behind a 12-hour edge
+  cache that serves the old listing after every push; @latest resolves to the newest tag.
+  Installed 1.0.10 keeps @main in its own index.js; 1.0.11+ ships @latest.
+- Tag v1.0.10 moved to the final HEAD of this work so @latest/index.json serves 11 versions.
+- README rewritten (Vercel positioning per user request m00786, gate-1 section order,
+  badges, preview screenshot, all phases shipped, 28-tool counts fixed) + README.zh.md
+  mirror + docs/preview.png (the market card previews README images - the card had none).
+  locale/en.json and the GitHub About carry the same framing; wincu history stays in
+  docs/PLAN.md, HANDOFF.md and the MIT attribution headers (NOTICE.md, source headers).
+- AGENTS.md: version no longer pinned in prose (it drifted at 1.0.4), layout table current,
+  rule 9 (tool.call.toolview keys are lane-prefixed wire names - issue #1's mechanism, keep
+  .tmp-verify/toolview-keys.mjs passing), rule 10 (public surfaces state what it is, not
+  what it replaced), releasing section matches the new command + Dev AryaCode launch facts.

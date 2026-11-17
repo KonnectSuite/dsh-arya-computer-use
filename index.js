@@ -41,7 +41,10 @@ const STATUS_PATH = '/plugins/arya/status';
 // plugin registers its own on first apply: users then see "Arya Computer Use" in
 // Plugins -> Arya Plugin Market without pasting a URL, and every release published
 // to npm shows up there as an update.
-const MARKET_INDEX_URL = 'https://cdn.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@main/index.json';
+// @latest (the newest tag), not @main: a branch URL sits behind a 12-hour edge cache
+// that keeps serving the old listing after a release, and an untagged repo has no
+// @latest at all — which is why the listing drifted. Tags ship with the release.
+const MARKET_INDEX_URL = 'https://cdn.jsdelivr.net/gh/KonnectSuite/dsh-arya-computer-use@latest/index.json';
 const PLUGIN_VERSION = (() => {
   try { return JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).version ?? '0.0.0'; }
   catch { return '0.0.0'; }
