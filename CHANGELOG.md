@@ -3,6 +3,11 @@
 All published versions of [Arya Computer Use](https://github.com/KonnectSuite/dsh-arya-computer-use), newest first.
 Release notes for every version also live on the [Releases page](https://github.com/KonnectSuite/dsh-arya-computer-use/releases); dates are the npm publish times.
 
+## 1.0.11 — 2026-11-17
+
+- New setting **Browser executable path**: an absolute path to `msedge.exe`, `chrome.exe`, `brave.exe` … that the web lane launches when it starts its own browser, passed to agent-browser as `--executable-path`. Reported by shuning0128 in [issue #1](https://github.com/KonnectSuite/dsh-arya-computer-use/issues/1): agent-browser's auto-launch checks its own download cache and system Chrome only, so a machine with Edge and no Chrome gets `Auto-launch failed: Chrome not found`. Empty keeps the old behaviour.
+- Measured on this machine: with the flag set and a fresh daemon namespace, the web lane launched Edge (msedge process count 5 → 19); the setting validates as an absolute path in the settings page and in the host schema.
+
 ## 1.0.10 — 2026-11-17
 
 - Tool views are keyed per lane: desktop tool names take the `mcp__arya_desktop__` prefix, web-lane names take `mcp__arya_browser__agent_browser_` — 45 unique wire-name keys, no bare key, no duplicate.

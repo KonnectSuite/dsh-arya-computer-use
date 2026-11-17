@@ -129,10 +129,16 @@ export function browserArgs(settings = {}) {
   const profile = text(settings.browserProfile);
   const session = text(settings.browserSession);
   const state = text(settings.browserStateFile);
+  const executablePath = text(settings.browserExecutablePath);
   if (cdp) args.push('--cdp', cdp);
   if (profile) args.push('--profile', profile);
   if (session) args.push('--session', session);
   if (state) args.push('--state', state);
+  // Edge-only machines: agent-browser's auto-launch finds its own cache and
+  // system Chrome, not Edge (issue #1 report). The global --executable-path
+  // flag (and its AGENT_BROWSER_EXECUTABLE_PATH env) points the launch at any
+  // Chromium-family exe the user names.
+  if (executablePath) args.push('--executable-path', executablePath);
   if (settings.browserHeaded === true) args.push('--headed');
   return args;
 }

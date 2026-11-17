@@ -101,6 +101,7 @@ MCP 通道同样进程内挂载，源码安装和仓库安装行为完全一致�
 | Chrome 配置 / Session | – / `arya` | 复用 Chrome 登录状态并命名浏览器会话 |
 | 连接我的浏览器 | – | `--cdp` 端口或 URL，接入你已经打开的 Chrome |
 | 保存的登录状态 | – | 指向 cookies+localStorage JSON 的绝对路径 |
+| 浏览器程序路径 | – | 网页通道自启浏览器时的 msedge.exe / chrome.exe / brave.exe 绝对路径；留空则自动查找系统 Chrome |
 | 显示浏览器窗口 | 关 | 网页通道使用 `--headed` |
 
 ## 工具预设

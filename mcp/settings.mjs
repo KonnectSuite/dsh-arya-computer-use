@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   resumeToken: 0, previewToken: 0,
   headedDefault: false, overlayDefault: true, driverLockEnabled: true, toolPreset: 'lite',
   browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserHeaded: false,
-  browserToolFlags: 'strip',
+  browserToolFlags: 'strip', browserExecutablePath: '',
 });
 
 export const STOP_SHORTCUT_PATTERN = /^(?:(?:Ctrl\+)?(?:Alt\+)?(?:Shift\+)?(?:Win\+)?(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Pause|CapsLock|NumLock|ScrollLock))?$/;
@@ -78,7 +78,7 @@ export function normalizeSettings(input = {}) {
   if (!SETTING_CHOICES.toolPreset.includes(value.toolPreset)) throw new Error('toolPreset must be one of ' + SETTING_CHOICES.toolPreset.join(', '));
   if (!SETTING_CHOICES.browserTools.includes(value.browserTools)) throw new Error('browserTools must be one of ' + SETTING_CHOICES.browserTools.join(', '));
   if (!SETTING_CHOICES.browserToolFlags.includes(value.browserToolFlags)) throw new Error('browserToolFlags must be one of ' + SETTING_CHOICES.browserToolFlags.join(', '));
-  for (const key of ['browserProfile', 'browserSession', 'browserStateFile', 'browserCdp']) {
+  for (const key of ['browserProfile', 'browserSession', 'browserStateFile', 'browserCdp', 'browserExecutablePath']) {
     if (typeof value[key] !== 'string') throw new Error(`${key} must be a string`);
     if (/[\r\n\x00-\x1f]/.test(value[key])) throw new Error(`${key} must be one line`);
     value[key] = value[key].trim();
@@ -86,6 +86,7 @@ export function normalizeSettings(input = {}) {
   if (value.browserSession && !/^[\p{L}\p{N}_-]+$/u.test(value.browserSession)) throw new Error('browserSession may contain letters, numbers, hyphens and underscores');
   if (value.browserCdp && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(value.browserCdp)) throw new Error('browserCdp must be a port, an http(s):// URL or a ws:// URL');
   if (value.browserStateFile && !/^(?:[A-Za-z]:[\\/]|\/)/.test(value.browserStateFile)) throw new Error('browserStateFile must be an absolute path');
+  if (value.browserExecutablePath && !/^(?:[A-Za-z]:[\\/]|\/)/.test(value.browserExecutablePath)) throw new Error('browserExecutablePath must be an absolute path');
   for (const key of ['resumeToken', 'previewToken', 'progressPreviewToken']) {
     if (!Number.isSafeInteger(value[key]) || value[key] < 0) throw new Error(`${key} must be a nonnegative integer`);
   }

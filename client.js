@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
       indicatorIdleMs: 800, stopShortcut: '', resumeToken: 0, previewToken: 0,
       headedDefault: false, overlayDefault: true, driverLockEnabled: true,
       toolPreset: 'lite',
-  browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserHeaded: false, browserToolFlags: 'strip',
+  browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserExecutablePath: '', browserHeaded: false, browserToolFlags: 'strip',
     };
     const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
     const dictionaries = {
@@ -46,9 +46,10 @@ window.__ModuleLoader__.load({
         browserSession: '会话名', browserSessionHint: '隔离的会话键；不同会话名的 Cookie 与标签页彼此独立。',
         browserCdp: '连接我的浏览器', browserCdpHint: 'CDP 地址，例如 http://127.0.0.1:9222。用 --remote-debugging-port=9222 启动 Chrome 即可共享已登录的窗口。',
         browserStateFile: '已保存的登录状态', browserStateFileHint: '用 agent-browser state save 保存的 JSON 状态文件路径。',
+        browserExecutablePath: '浏览器程序路径', browserExecutablePathHint: '网页通道自己启动浏览器时使用的可执行文件绝对路径，例如 Edge 的 msedge.exe 路径；留空则由 agent-browser 自行查找系统 Chrome。',
         browserHeaded: '显示浏览器窗口', browserHeadedHint: '打开可见的 Chromium 窗口，而不是无头运行。',
         browserRestart: '网页通道设置在下一次 MCP 重启后生效。',
-        invalidBrowser: '会话名只能包含字母、数字、连字符和下划线；CDP 地址需为端口、http(s):// 或 ws:// 地址；状态文件需为绝对路径。',
+        invalidBrowser: '会话名只能包含字母、数字、连字符和下划线；CDP 地址需为端口、http(s):// 或 ws:// 地址；状态文件与浏览器程序路径需为绝对路径。',
         stop: '停止与恢复', escTitle: '按 Esc 停止操作', escAlways: 'Esc 始终可用',
         stopHint: '停止后保持暂停，准备好再恢复。普通鼠标移动不会停止接管。',
         extraStop: '自定义停止方式', shortcutHint: '点击“录制快捷键”，再按下想用的按键或组合键，例如 F8 或 Ctrl + Alt + K。保存后生效；恢复默认后仅保留 Esc。',
@@ -98,9 +99,10 @@ window.__ModuleLoader__.load({
         browserSession: 'Session', browserSessionHint: 'An isolated session key; cookies and tabs stay separate per name.',
         browserCdp: 'Connect to my browser', browserCdpHint: 'A CDP endpoint such as http://127.0.0.1:9222. Start Chrome with --remote-debugging-port=9222 to share a signed-in window.',
         browserStateFile: 'Saved sign-in state', browserStateFileHint: 'Path to a JSON state file written by agent-browser state save.',
+        browserExecutablePath: 'Browser executable path', browserExecutablePathHint: 'Absolute path to the executable the web lane launches when it starts its own browser, for example the Edge msedge.exe path. Leave empty to let agent-browser find system Chrome.',
         browserHeaded: 'Show the browser window', browserHeadedHint: 'Open a visible Chromium window instead of running headless.',
         browserRestart: 'Web lane settings apply after the next MCP restart.',
-        invalidBrowser: 'The session may contain letters, numbers, hyphens and underscores; the CDP value must be a port, an http(s):// URL or a ws:// URL; the state file must be an absolute path.',
+        invalidBrowser: 'The session may contain letters, numbers, hyphens and underscores; the CDP value must be a port, an http(s):// URL or a ws:// URL; the state file and the browser executable path must be absolute paths.',
         stop: 'Stop and resume', escTitle: 'Press Esc to stop', escAlways: 'Esc always works',
         stopHint: 'Control stays paused until you resume. Ordinary mouse movement does not stop it.',
         extraStop: 'Custom stop shortcut', shortcutHint: 'Click Record shortcut, then press a key or combination, such as F8 or Ctrl + Alt + K. Save to apply. Restoring the default keeps only Esc.',
@@ -305,7 +307,7 @@ window.__ModuleLoader__.load({
       const openProgress = () => applyOverlayPatch({ ...Object.fromEntries(overlayKeys.map((key) => [key, draft[key]])), progressOverlayEnabled: true, progressPreviewToken: Date.now() });
       const save = async () => {
         if (!draft.indicatorText.trim() || draft.indicatorText.length > 120 || /[\r\n\x00-\x1f]/.test(draft.indicatorText) || !draft.pointerLabel.trim() || draft.pointerLabel.trim().length > 16 || /[\r\n\x00-\x1f]/.test(draft.pointerLabel) || !Number.isInteger(draft.indicatorIdleMs) || draft.indicatorIdleMs < 200 || draft.indicatorIdleMs > 3000) { setMessage(t('invalid')); setTone('error'); return; }
-        if ((draft.browserSession && !/^[\p{L}\p{N}_-]+$/u.test(draft.browserSession)) || (draft.browserCdp && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(draft.browserCdp)) || (draft.browserStateFile && !/^(?:[A-Za-z]:[\\/]|\/)/.test(draft.browserStateFile))) { setMessage(t('invalidBrowser')); setTone('error'); return; }
+        if ((draft.browserSession && !/^[\p{L}\p{N}_-]+$/u.test(draft.browserSession)) || (draft.browserCdp && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(draft.browserCdp)) || (draft.browserStateFile && !/^(?:[A-Za-z]:[\\/]|\/)/.test(draft.browserStateFile)) || (draft.browserExecutablePath && !/^(?:[A-Za-z]:[\\/]|\/)/.test(draft.browserExecutablePath))) { setMessage(t('invalidBrowser')); setTone('error'); return; }
         const patch = Object.fromEntries(Object.keys(defaults).filter((key) => !equal(draft[key], saved[key])).map((key) => [key, draft[key]]));
         if (await run(patch, 'saved')) setDirty(false);
       };
@@ -364,7 +366,8 @@ window.__ModuleLoader__.load({
             field(title(t('browserProfile'), 'browserProfileHint', { htmlFor: idPrefix + '-browserProfile' }), h('input', { id: idPrefix + '-browserProfile', type: 'text', maxLength: 200, placeholder: 'Default', value: draft.browserProfile, disabled, onChange: (e) => change('browserProfile', e.target.value) })),
             field(title(t('browserSession'), 'browserSessionHint', { htmlFor: idPrefix + '-browserSession' }), h('input', { id: idPrefix + '-browserSession', type: 'text', maxLength: 64, placeholder: 'arya', value: draft.browserSession, disabled, onChange: (e) => change('browserSession', e.target.value) })),
             field(title(t('browserCdp'), 'browserCdpHint', { htmlFor: idPrefix + '-browserCdp' }), h('input', { id: idPrefix + '-browserCdp', type: 'text', maxLength: 200, placeholder: 'http://127.0.0.1:9222', value: draft.browserCdp, disabled, onChange: (e) => change('browserCdp', e.target.value) })),
-            field(title(t('browserStateFile'), 'browserStateFileHint', { htmlFor: idPrefix + '-browserStateFile' }), h('input', { id: idPrefix + '-browserStateFile', type: 'text', maxLength: 400, value: draft.browserStateFile, disabled, onChange: (e) => change('browserStateFile', e.target.value) }))),
+            field(title(t('browserStateFile'), 'browserStateFileHint', { htmlFor: idPrefix + '-browserStateFile' }), h('input', { id: idPrefix + '-browserStateFile', type: 'text', maxLength: 400, value: draft.browserStateFile, disabled, onChange: (e) => change('browserStateFile', e.target.value) })),
+            field(title(t('browserExecutablePath'), 'browserExecutablePathHint', { htmlFor: idPrefix + '-browserExecutablePath' }), h('input', { id: idPrefix + '-browserExecutablePath', type: 'text', maxLength: 400, placeholder: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', value: draft.browserExecutablePath, disabled, onChange: (e) => change('browserExecutablePath', e.target.value) }))),
           h('p', { className: 'arya-hint' }, t('browserRestart'))),
         h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-stop-title' },
           head(idPrefix + '-stop-title', 'stop', null, button('clearShortcut', { className: 'arya-small', disabled: disabled || !draft.stopShortcut, onClick: () => { change('stopShortcut', ''); setRecordMessage(''); } })),

@@ -116,6 +116,7 @@ install behave identically.
 | Chrome profile / Session | – / `arya` | Reuse a Chrome login state and name the browser session |
 | Connect to my browser | – | `--cdp` port or URL to attach to a Chrome you already have open |
 | Saved sign-in state | – | Absolute path to a cookies+localStorage JSON to reuse |
+| Browser executable path | – | Absolute path to msedge.exe / chrome.exe / brave.exe when the web lane starts its own browser; empty finds system Chrome |
 | Show the browser window | off | `--headed` for the web lane |
 
 ## Tool presets

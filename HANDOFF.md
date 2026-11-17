@@ -372,3 +372,27 @@ What changed:
   rule 9 (tool.call.toolview keys are lane-prefixed wire names - issue #1's mechanism, keep
   .tmp-verify/toolview-keys.mjs passing), rule 10 (public surfaces state what it is, not
   what it replaced), releasing section matches the new command + Dev AryaCode launch facts.
+
+## 1.0.11 — the browser executable path (issue #1 follow-up)
+
+The reporter's re-verification of 1.0.10 passed both halves (startup lines gone;
+the web-lane row renders in plugin style — his probe was agent_browser_get_title,
+one of the 21 names that had never registered). Issue #1 closed with his result.
+
+His new observation is real and unrelated to the key fix: agent-browser's
+auto-launch checks its own download cache and system Chrome only. A machine with
+Edge and no Chrome gets `Auto-launch failed: Chrome not found`. The engine has
+no Edge detection (grep msedge: 0 hits in agent-browser 0.41.2).
+
+Fix: a **Browser executable path** setting (`browserExecutablePath`, absolute
+path, default empty) threaded host schema (index.js) -> settings store
+(mcp/settings.mjs) -> web-lane launcher (mcp/browser-launcher.mjs passes
+`--executable-path`) -> settings page row with en+zh copy. Empty keeps the old
+behaviour. Measured proof: with the flag and a fresh daemon namespace the lane
+launched Edge (msedge 5 -> 19); the daemon resolves the browser at daemon start,
+so the flag matters at spawn time, which is exactly what the launcher controls.
+The env-var route (AGENT_BROWSER_EXECUTABLE_PATH) exists too; the flag is the
+one the launcher owns.
+
+Gate-2 note for the next pass: the dev host must set the Edge path in the plugin
+settings and one web-lane call must launch Edge, not Chrome.

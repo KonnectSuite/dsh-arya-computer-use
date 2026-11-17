@@ -231,6 +231,7 @@ const fields = {
   browserSession: z.string().default('').description('Isolated browser session key'),
   browserStateFile: z.string().default('').description('Saved sign-in state file for the web lane'),
   browserCdp: z.string().default('').description('CDP endpoint of a browser to attach to instead of launching one'),
+  browserExecutablePath: z.string().default('').description('Absolute path to a Chromium-family browser executable (Edge, Chrome, Brave) the web lane launches when it starts its own browser; empty lets agent-browser find system Chrome'),
   browserHeaded: z.boolean().default(false).description('Show the web lane browser window'),
 };
 export const SettingsConfig = z.object(fields);
