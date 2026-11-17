@@ -261,3 +261,44 @@ parallel with the user's own pointer. Verified end to end on this machine, then 
   in-process by `index.js`), so a user who is already running AryaCode needs one restart.
   The installed profile was also hot-copied for this verification, byte-identical to the
   published payload.
+
+## Issue #1 — the startup duplicate-registration error was ours (1.0.10)
+
+Reported 2026-11-14 by shuning0128 on DSH Desktop 2.0.23-next with plugin 1.0.6: every
+renderer startup logs two lines, `[next-ui-error]` and `Uncaught Error: keyed slot
+"tool.call.toolview" already has an entry for key "read" at priority 0 (registered by
+read-toolview) — register at a different priority to shadow it (lowest renders)`. Their A/B
+(disable → error gone, re-enable → error returns) isolated it to this plugin, but their own
+full-text search of our bundle found no `key: "read"`, so they suspected the official
+conversation client was being applied twice.
+
+- **Mechanism.** `registerActivity` in `client.js:448` registered each tool name under three
+  prefixes, the third being `''`. `browserActionKeys` contains `read` (the web lane's
+  `agent_browser_read`), so the empty prefix produced the bare key `read` — the key the
+  shipped `read-toolview` owns (`@deepseek-ai/dsh-client-ui-tool`, `key:"read"`, no priority).
+  A keyed collision throws only on same key **and** same priority; our client half loads
+  through `window.__ModuleLoader__.load`, not the runner's `dyn/<id>`, so it is not behind
+  `guardedSlots` priority allocation and our priority stayed `undefined` → 0. Hence
+  "at priority 0". The search missed it because the key is computed as `prefix + name`.
+- **The part the reporter could not see.** The injection is a generator, so the throw at bare
+  `read` (name 17 of 48) aborted the sequence: every browser-lane key from `snapshot` onward
+  was never registered, including the correct `mcp__arya_browser__agent_browser_*` keys —
+  ~30 of 32 web-lane rows silently fell back to the generic card. Desktop-lane keys landed,
+  which is why the UI looked unaffected.
+- **Fix.** Drop the `''` prefix; keys are wire Tool names only (`mcp__arya_desktop__…`,
+  `mcp__arya_browser__agent_browser_…`). The error message's own advice — "register at a
+  different priority" — is the wrong remedy here: it would let our row shadow the shipped
+  `read` card and render the built-in file-read tool as an Arya activity row. `read` was the
+  only colliding bare key, matching the single reported error line. Present in every release
+  since f1690a2 (2026-11-07, Phase 3 web lane), so 1.0.6 through 1.0.9 all carry it.
+- **Verified locally** (no build/test suite): `node --check client.js` clean; a one-shot
+  guard read the prefix array out of `client.js` and reported `empty prefixes: 0` and
+  `collisions with first-party wire names: 0` against the shipped wire names.
+- **Still to do before this reaches a user:** install 1.0.10 on Dev AryaCode, confirm zero
+  startup errors **and** that web-lane rows (`agent_browser_open`, `agent_browser_snapshot`,
+  …) render as Arya rows again — the second check is the proof the generator ran to the end.
+  Then `node ../dsh-arya-market/scripts/release-plugin.mjs` and record the digest here.
+- **Lesson for any future client half:** never register `tool.call.toolview` under a bare
+  name. `dsh-client-ui-tool` keys that slot by wire Tool name and first-party owns the bare
+  ones (`read`, `edit`, `write`, `apply_patch`, `grep`, `present`, `skill`, `schedule_*`,
+  `*_goal`, …). A third-party plugin's keys must carry its own `mcp__…` prefix.
