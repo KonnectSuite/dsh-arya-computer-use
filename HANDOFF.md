@@ -421,5 +421,10 @@ so it stays a follow-up; callers can still pass headed per call to
 agent_browser_open. browserCdp/browserSession/browserProfile/browserStateFile
 flags after `mcp`: respect unknown, left flag-only (settings are empty).
 
-Gate-2 note for the next pass: the dev host must set the Edge path in the plugin
-settings and one web-lane call must launch Edge, not Chrome.
+Gate-2 pass (2026-11-17, dev AryaCode, launch 8b): the settings page row saved the Edge
+path and it persisted (status route shows it after a restart); the MCP mount spawned the
+dev daemon through the fixed launcher; the end-to-end test (gate2c-e2e-installed.mjs,
+speaking MCP to the INSTALLED launcher) opened https://example.com with msedge 5 -> 19
+during the open, a fresh agent-browser profile dir, and
+`HeadlessChrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0` in navigator.userAgent — the page
+rendered in Edge, not Chrome. Startup logs: zero keyed-slot or activation errors.
