@@ -281,19 +281,29 @@ conversation client was being applied twice.
   `guardedSlots` priority allocation and our priority stayed `undefined` → 0. Hence
   "at priority 0". The search missed it because the key is computed as `prefix + name`.
 - **The part the reporter could not see.** The injection is a generator, so the throw at bare
-  `read` (name 17 of 48) aborted the sequence: every browser-lane key from `snapshot` onward
-  was never registered, including the correct `mcp__arya_browser__agent_browser_*` keys —
-  ~30 of 32 web-lane rows silently fell back to the generic card. Desktop-lane keys landed,
-  which is why the UI looked unaffected.
-- **Fix.** Drop the `''` prefix; keys are wire Tool names only (`mcp__arya_desktop__…`,
-  `mcp__arya_browser__agent_browser_…`). The error message's own advice — "register at a
-  different priority" — is the wrong remedy here: it would let our row shadow the shipped
-  `read` card and render the built-in file-read tool as an Arya activity row. `read` was the
-  only colliding bare key, matching the single reported error line. Present in every release
-  since f1690a2 (2026-11-07, Phase 3 web lane), so 1.0.6 through 1.0.9 all carry it.
-- **Verified locally** (no build/test suite): `node --check client.js` clean; a one-shot
-  guard read the prefix array out of `client.js` and reported `empty prefixes: 0` and
-  `collisions with first-party wire names: 0` against the shipped wire names.
+  `read` aborted the sequence: only 53 of the 135 registrations landed, and only **8 of the 29
+  web-lane rows** were ever registered (`open`, `read`, and the six names the two action tables
+  share — `snapshot`, `click`, `type`, `press`, `screenshot`, `scroll` — reached through the
+  accidental cross-prefix product). The other 21 silently fell back to the generic card. Every
+  desktop-lane key landed before the throw, which is why the UI looked unaffected.
+- **The registration was a cross-product, and that is a second bug.** `for (const name of names)
+  for (const prefix of …)` applied *every* prefix to *every* name, so `mcp__arya_desktop__read`
+  and `mcp__arya_browser__agent_browser_find` were registered as keys no wire call can ever have,
+  and the names present in both action tables registered the same key twice. Removing only the
+  `''` prefix therefore does **not** fix it: the harness shows that variant throwing at
+  `mcp__arya_desktop__snapshot` and losing 9 of 29 web-lane rows the same way.
+- **Fix (1.0.10).** Keys are built per lane — desktop names take `mcp__arya_desktop__`, browser
+  names take `mcp__arya_browser__agent_browser_` — giving 45 unique wire-name keys, no bare key,
+  no duplicate, no junk key. The error message's own advice, "register at a different priority",
+  is the wrong remedy: it would let our row shadow the shipped `read` card and render the
+  built-in file-read tool as an Arya activity row. Present in every release since f1690a2
+  (2026-11-07, Phase 3 web lane), so 1.0.6 through 1.0.9 all carry it.
+- **Verified locally** (no build/test suite): `node --check client.js` clean, plus
+  `.tmp-verify/toolview-keys.mjs` — a harness that replays the client half against the keyed-slot
+  rule read verbatim from the shipped bundle, with the 24 first-party keys pre-registered. It runs
+  three variants and passes: published code throws at `key "read"` (the reported error, verbatim);
+  the prefix-only variant still throws, at `mcp__arya_desktop__snapshot`; lane-matched code
+  registers 16 + 29 keys with zero errors. Worth keeping as a guard if a test suite is ever added.
 - **Still to do before this reaches a user:** install 1.0.10 on Dev AryaCode, confirm zero
   startup errors **and** that web-lane rows (`agent_browser_open`, `agent_browser_snapshot`,
   …) render as Arya rows again — the second check is the proof the generator ran to the end.

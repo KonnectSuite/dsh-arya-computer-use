@@ -444,11 +444,13 @@ window.__ModuleLoader__.load({
       return h('details', { className: 'arya-activity', 'data-arya-series': true }, h('style', null, activityCss), h('summary', null, mouseIcon(), h('span', { className: 'arya-activity-label' }, seriesText(state.calls, t)), h('span', { className: 'arya-activity-state' }, t(status) + ' · ' + state.calls.length + ' ' + t('seriesCount'))), h('ol', null, ...state.calls.map((call) => h('li', { key: call.id }, actionText(call, t), activityBody(call, renderFactorySlot, loadImage, t)))));
     }
     function registerActivity(ctx) {
-      const names = [...Object.keys(actionKeys), ...Object.keys(browserActionKeys)];
-      // Keys are wire Tool names, never bare names: a bare key collides with a first-party toolview at priority 0
-      // (issue #1 — the '' prefix made key "read", which is the shipped read-toolview's, and the generator threw there,
-      // so every browser-lane key after it was never registered).
-      ctx.slots.inject('tool.call.toolview', function* () { for (const name of names) for (const prefix of ['mcp__arya_desktop__', 'mcp__arya_browser__agent_browser_']) yield ctx.slots.register({ name: 'tool.call.toolview', key: prefix + name, locale: NS }, MouseToolRow); });
+      // Keys are wire Tool names, one per lane. A bare key collides with a first-party toolview at priority 0
+      // (issue #1: the '' prefix produced key "read", which the shipped read-toolview owns). A cross-product of the
+      // two action tables collides too, on the names they share (snapshot, screenshot, click, type, press, scroll),
+      // because each would register the same key twice. The injection is a generator, so any collision aborts every
+      // later key — which is why the web-lane rows silently fell back to the generic card.
+      const keys = [...Object.keys(actionKeys).map((name) => 'mcp__arya_desktop__' + name), ...Object.keys(browserActionKeys).map((name) => 'mcp__arya_browser__agent_browser_' + name)];
+      ctx.slots.inject('tool.call.toolview', function* () { for (const key of keys) yield ctx.slots.register({ name: 'tool.call.toolview', key, locale: NS }, MouseToolRow); });
       ctx.inject(['uiConversation'], (owner) => {
         owner.uiConversation.events.register(seriesDefinition);
         ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({ name: 'conversation.chat.node', key: 'arya-series', locale: NS }, SeriesRow));
