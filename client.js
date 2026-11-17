@@ -445,7 +445,10 @@ window.__ModuleLoader__.load({
     }
     function registerActivity(ctx) {
       const names = [...Object.keys(actionKeys), ...Object.keys(browserActionKeys)];
-      ctx.slots.inject('tool.call.toolview', function* () { for (const name of names) for (const prefix of ['mcp__arya_desktop__', 'mcp__arya_browser__agent_browser_', '']) yield ctx.slots.register({ name: 'tool.call.toolview', key: prefix + name, locale: NS }, MouseToolRow); });
+      // Keys are wire Tool names, never bare names: a bare key collides with a first-party toolview at priority 0
+      // (issue #1 — the '' prefix made key "read", which is the shipped read-toolview's, and the generator threw there,
+      // so every browser-lane key after it was never registered).
+      ctx.slots.inject('tool.call.toolview', function* () { for (const name of names) for (const prefix of ['mcp__arya_desktop__', 'mcp__arya_browser__agent_browser_']) yield ctx.slots.register({ name: 'tool.call.toolview', key: prefix + name, locale: NS }, MouseToolRow); });
       ctx.inject(['uiConversation'], (owner) => {
         owner.uiConversation.events.register(seriesDefinition);
         ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({ name: 'conversation.chat.node', key: 'arya-series', locale: NS }, SeriesRow));
