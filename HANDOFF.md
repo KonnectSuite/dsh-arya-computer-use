@@ -428,3 +428,12 @@ speaking MCP to the INSTALLED launcher) opened https://example.com with msedge 5
 during the open, a fresh agent-browser profile dir, and
 `HeadlessChrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0` in navigator.userAgent — the page
 rendered in Edge, not Chrome. Startup logs: zero keyed-slot or activation errors.
+- **Published 2026-11-17: 1.0.11** (user-approved gate 3). npm `latest` + catalog recorded +
+  tag v1.0.11 -> 7b719c6 + GitHub release with the CHANGELOG entry as notes; sha256
+  1cc6e0789e9c…, 23 files, 120.6 kB packed / 390.6 kB unpacked, npm shasum f9893c36….
+  The release script pushed the index-sync commit and the tag itself this time.
+  npmmirror: 1.0.10 auto-synced (mirror time 2026-11-17T03:27:56Z); a manual sync for 1.0.11
+  was queued via `PUT https://registry.npmmirror.com/-/package/<pkg>/syncs` (201, state waiting)
+  — that endpoint form is the working one; the bare `/<pkg>/syncs` returns 422.
+  Issue #1 closed with the bilingual thank-you + 1.0.11 notice + mirror guidance
+  (comment 6964632290).
