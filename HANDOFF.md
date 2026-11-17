@@ -304,10 +304,37 @@ conversation client was being applied twice.
   three variants and passes: published code throws at `key "read"` (the reported error, verbatim);
   the prefix-only variant still throws, at `mcp__arya_desktop__snapshot`; lane-matched code
   registers 16 + 29 keys with zero errors. Worth keeping as a guard if a test suite is ever added.
-- **Still to do before this reaches a user:** install 1.0.10 on Dev AryaCode, confirm zero
-  startup errors **and** that web-lane rows (`agent_browser_open`, `agent_browser_snapshot`,
-  …) render as Arya rows again — the second check is the proof the generator ran to the end.
-  Then `node ../dsh-arya-market/scripts/release-plugin.mjs` and record the digest here.
+- **Verified on Dev AryaCode (2026-11-16), A/B in one profile.** 1.0.10 was installed as a
+  `file:` tarball in `%LOCALAPPDATA%\AryaCode-dev\home\profiles\desktop` (pnpm remove + pnpm add,
+  never a hot copy), and the same instance was relaunched three times on that profile.
+  - With the published **1.0.9** the renderer logs the reporter's line verbatim: `Uncaught Error:
+    keyed slot "tool.call.toolview" already has an entry for key "read" at priority 0 (registered
+    by read-toolview) — register at a different priority to shadow it (lowest renders)`
+    (`%LOCALAPPDATA%\AryaCode-dev\dev-issue1c.err.log`). That is the reproduction the reporter
+    asked for, produced in the real host rather than in a harness.
+  - With **1.0.10** the same launch logs **zero** `keyed slot` lines and zero `did not activate` /
+    `import failed` / `duplicate factory` / `failed to load` (`dev-issue1d.out.log`,
+    `dev-issue1d.err.log`); the renderer's client load list contains
+    `@aryacode/dsh-plugin-arya-computer-use/client.js`; `GET /plugins/arya/status` answers
+    `version "1.0.10"` with `mcp.mounted:true`, `servers ["arya_desktop","arya_browser"]`,
+    `resolveErrors:[]`; `GET /dsh-market/installed` reports `activation.state "live"` with no
+    diagnostics findings and `brokenPlugins {}`. The Plugins panel shows **Arya Computer Use
+    v1.0.10**, its enable switch on, Components 1 total · 1 running
+    (`.tmp-verify/dev-1010-plugin-detail.png`, `.tmp-verify/dev-1010-final.png`).
+  - **What that does and does not prove.** The only way that injection generator aborts is a
+    collision throw, and the 1.0.9 run shows the throw surfacing as exactly one renderer line, so
+    zero lines on 1.0.10 means all 45 keys registered. A web-lane row (`agent_browser_snapshot`,
+    …) rendering in Arya style was **not** eyeballed in a live dev-host chat; that inference is
+    the remaining soft spot in this pass.
+- **Launch note for the next verification pass:** from an agent shell the dev desktop must be
+  started with `ELECTRON_DISABLE_SANDBOX=1`. Measured: a bare Electron 44.7.0 probe fails with
+  `Renderer process launch-failed` and `GPU process launch failed: error_code=18` plus
+  `persistent_cache_sandboxed_file_factory.cc:153 … GPUPersistentCache\DawnGraphiteCache\…`
+  **in any userData directory, including a fresh temp one**, and starts clean with that switch —
+  so it is the confined shell blocking Chromium's sandboxed children, not a locked or badly
+  ACL'd directory. Verification-environment switch only; it touches nothing in the plugin.
+- **Still to do:** `node ../dsh-arya-market/scripts/release-plugin.mjs --dir ../dsh-arya-computer-use`
+  and record the published digest here.
 - **Lesson for any future client half:** never register `tool.call.toolview` under a bare
   name. `dsh-client-ui-tool` keys that slot by wire Tool name and first-party owns the bare
   ones (`read`, `edit`, `write`, `apply_patch`, `grep`, `present`, `skill`, `schedule_*`,
