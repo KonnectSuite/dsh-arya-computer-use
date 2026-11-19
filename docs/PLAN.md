@@ -150,3 +150,16 @@ Overlay cost: ~355 ms per headless action (click 427→782 ms). Setting default:
   cursor is never read, moved or highlighted; background actions report `mechanism: semantic_api`.
 - Channel: adapter writes `control/target.json` -> `mcp/takeover.mjs` sends the `hint` command ->
   overlay re-frames / re-aims. `list-windows` returns a bare array in `data`.
+
+### Browser lane native spawn (2026-11-19, issue #2)
+
+- The launcher's "skip the shim" rule was written correctly and resolved wrongly: `nativeBin()`
+  anchored on the package root, while `agent-browser` ships its natives beside
+  `bin/agent-browser.js`. The lookup failed on every run from 1.0.3 to 1.0.11, the shim ran, and
+  the shim's `stdio:'inherit'` + `windowsHide:false` spawn put a console window on the desktop
+  each startup — hidden a few seconds later by `scripts/hide-consoles.ps1`, which is why the
+  defect survived nine releases instead of being seen.
+- Lesson recorded in `AGENTS.md` terms: a watchdog that hides a symptom is not evidence the
+  symptom is gone. 1.0.12 anchors the lookup on `dirname(SHIM)` and makes a shim fallback print
+  one stderr line.
+

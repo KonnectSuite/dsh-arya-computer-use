@@ -6,10 +6,13 @@
 # shim (agent-browser/bin/agent-browser.js, agent-desktop/bin/agent-desktop)
 # that runs the native helper with `stdio: 'inherit'` and `windowsHide: false`,
 # and a native helper that outlives the call (the browser daemon) keeps its
-# console for the whole session. The plugin starts the natives itself wherever
-# it can, so the shim never runs, but a lane restart or a helper started by
-# something else still puts a black console on screen - and closing it kills the
-# helper, which is why it comes back.
+# console for the whole session. Both lanes now spawn the natives themselves —
+# the browser lane only since 1.0.12, when nativeBin() stopped looking for the
+# exe at the package root (issue #2) — so the shim is not in the normal path.
+# This watcher is the backstop for the rest: a helper started by a manual CLI
+# run, by another install, or by a lane that could not find its native. A black
+# console on screen must not be closed, because closing it kills the helper -
+# which is why it comes back.
 #
 # This watcher hides those windows instead of closing them. Hiding only removes
 # the chrome: stdio is piped, the helper keeps running and stays reachable.

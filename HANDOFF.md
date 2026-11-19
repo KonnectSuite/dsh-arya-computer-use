@@ -437,3 +437,68 @@ rendered in Edge, not Chrome. Startup logs: zero keyed-slot or activation errors
   — that endpoint form is the working one; the bare `/<pkg>/syncs` returns 422.
   Issue #1 closed with the bilingual thank-you + 1.0.11 notice + mirror guidance
   (comment 6964632290).
+
+## Issue #2 — the browser lane never found its native (2026-11-19, candidate 1.0.12)
+
+shuning0128 reported (issue #2) that every AryaCode start popped a black
+`agent-browser-win32-x64.exe` console window on the Windows desktop, hidden a few
+seconds later by this plugin's own `scripts/hide-consoles.ps1`. His diagnosis:
+`nativeBin()` looked for the native at the **package root** while agent-browser
+ships it beside `bin/agent-browser.js`, so the lookup always failed and the lane
+fell back to the npm shim — whose `spawn(binaryPath, argv, { stdio:'inherit',
+windowsHide:false })` (agent-browser 0.41.2 `bin/agent-browser.js:115-118`) is
+what allocates the visible console.
+
+He is right, and the watchdog is why it survived: `git blame`
+`mcp/browser-launcher.mjs:27-41` is all `91e0e31` ("1.0.3: keep the engine console
+windows off the desktop"), and `git tag --contains 91e0e31` covers **v1.0.3 through
+v1.0.11**. The rule in the header was written correctly — skip the shim, spawn the
+native — and resolved wrongly on every single run. `hide-consoles.ps1` hid the
+symptom, so nothing looked broken. Lesson recorded in `docs/PLAN.md`: a watchdog
+that hides a symptom is not evidence the symptom is gone.
+
+Fix (1.0.12): `nativeBin()` anchors on `dirname(SHIM)` instead of the package root,
+so it resolves beside the shim whatever layout the engine ships; `linux-musl` is
+chosen the way the shim decides it, `x86_64`/`aarch64` aliases are accepted, the
+win32-arm64 → x64 fallback checks the directory it will actually spawn from (that
+native is not shipped in 0.41.2), the shim's exec-bit repair (`chmod 0o755`) is
+carried over, and a fallback to the shim now prints one stderr line instead of
+failing silently. `nativeBin()` is exported for testing. The desktop lane already
+had this right (`mcp/adapter-server.mjs:41` `join(pkgDir, 'bin', entry.binaryName)`),
+which is why only the browser window ever appeared.
+
+Measured A/B on this machine (harnesses in `KonnectSuite/.tmp-verify`, kept out of
+the repo so the release script sees a clean tree):
+- `issue2-nativebin.mjs` — imports the real exported `nativeBin()`, recomputes the
+  shim's own expected name, and carries a regression guard that the package-root
+  anchor does NOT hold the file. PASS: `…\agent-browser\bin\agent-browser-win32-x64.exe`.
+- `issue2-launch-chain.mjs` — spawns the launcher, speaks MCP, opens a page, walks the
+  process tree. 1.0.11 production chain (pid 7256 launcher → **28548 `agent-browser.js`
+  shim** → 12988 native) vs 1.0.12 (launcher → `agent-browser-win32-x64.exe` directly,
+  no shim rung, subtree is daemon + `conhost.exe` only, zero console windows).
+- `issue2-console-windows.ps1` enumerates every `ConsoleWindowClass` window with
+  pid/exe/visible. The 1.0.11 daemon's window is there with `visible=False` (the
+  watchdog hid it); the fixed daemon owns none; no engine window visible on the desktop.
+  Note the mechanism: the shim's `stdio:'inherit'` + `windowsHide:false` spawn still
+  gets a console allocated because its parent has none; our `windowsHide:true` is
+  `CREATE_NO_WINDOW`, so conhost exists with no window.
+  Harness trap worth remembering: `powershell -Command "& '<path>'"` is refused
+  ("not digitally signed") and returns empty stdout, which reads as a false "0
+  windows". Use `powershell -NoProfile -ExecutionPolicy Bypass -File <path>`, and
+  assert a positive control before trusting any zero.
+
+Gate-2 pass (2026-11-19, dev AryaCode, candidate tarball installed with `pnpm remove`
++ `pnpm add file:` into `%LOCALAPPDATA%\AryaCode-dev\home\profiles\desktop`, launched
+through `AryaCode-dev.bat desktop` with `ARYACODE_REPO` pointed at the KonnectSuite
+checkout and `ELECTRON_DISABLE_SANDBOX=1`): `/plugins/arya/status` answers version
+**1.0.12** with `mcp.mounted:true`, both servers, `resolveErrors:[]`; `/dsh-market/installed`
+reports `activation.state "live"` and empty `diagnostics.findings`; the dev daemon is
+spawned as `agent-browser-win32-x64.exe mcp --tools core --executable-path "…msedge.exe"`
+with no shim rung and no console window; `gate2c-e2e-installed.mjs` opened
+https://example.com through the INSTALLED launcher (msedge 5 → 19 → 5, fresh profile
+dir, `HeadlessChrome/157.0.0.0 … Edg/157.0.0.0`); the desktop lane drove a ref end to
+end (`set_value` then `get` readback `issue2 gate2 ref drive 1.0.12`); startup stderr
+carries no activation/import/factory/keyed-slot error; a cold start reproduces the fix.
+Notepad on Win11 is single-instance, so `launch notepad.exe` attaches to the user's
+window — the harness opened its own scratch file and targeted only that window, then
+closed both tabs it created through the window's own Close Tab affordance.

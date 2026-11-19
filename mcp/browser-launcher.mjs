@@ -13,9 +13,16 @@
 //    stdio:'inherit' + windowsHide:false, which pops a console window for the
 //    grandchild on the user's desktop. We skip the shim and spawn the native
 //    exe directly; it speaks MCP over stdio itself.
+//
+// The anchor rule for finding that native (issue #2): resolve it beside the
+// shim, never at the package root. The package ships every native next to
+// bin/agent-browser.js — the shim itself resolves join(__dirname, binaryName)
+// — so dirname(SHIM) is the only directory that tracks the package layout.
+// 1.0.3-1.0.11 looked at the package root, found nothing, and fell back to the
+// shim every run; the console-window watchdog hid the symptom for nine releases.
 
-import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { execSync, spawn } from 'node:child_process';
+import { accessSync, chmodSync, constants, existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, platform, arch } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -24,20 +31,51 @@ import { Transform } from 'node:stream';
 const require = createRequire(import.meta.url);
 const SHIM = require.resolve('agent-browser/bin/agent-browser.js');
 
-// Resolve the platform native binary shipped inside the agent-browser package,
-// mirroring bin/agent-browser.js's naming (with the win32-arm64 → x64 fallback).
-function nativeBin() {
-  const dir = dirname(require.resolve('agent-browser/package.json'));
-  const osKey = { darwin: 'darwin', linux: 'linux', win32: 'win32' }[platform()];
-  const archKey = { x64: 'x64', arm64: 'arm64' }[arch()];
-  if (!osKey || !archKey) return null;
-  const ext = osKey === 'win32' ? '.exe' : '';
-  let name = `agent-browser-${osKey}-${archKey}${ext}`;
-  if (osKey === 'win32' && archKey === 'arm64' && !existsSync(join(dir, name))) {
-    name = 'agent-browser-win32-x64.exe';
+// musl libc (Alpine) ships agent-browser-linux-musl-<arch>, decided exactly as
+// bin/agent-browser.js's isMusl() decides it.
+function isMusl() {
+  if (platform() !== 'linux') return false;
+  try {
+    return String(execSync('ldd --version 2>&1 || true', { encoding: 'utf8' }))
+      .toLowerCase()
+      .includes('musl');
+  } catch {
+    return existsSync('/lib/ld-musl-x86_64.so.1') || existsSync('/lib/ld-musl-aarch64.so.1');
   }
-  const bin = join(dir, name);
+}
+
+// Resolve the platform native binary, mirroring bin/agent-browser.js's naming:
+// the same osKey (with the musl variant), the same arch aliases, and the same
+// win32-arm64 -> x64 fallback. Exported so the resolution is testable.
+export function nativeBin() {
+  const dir = dirname(SHIM);
+  const os = platform();
+  const osKey = os === 'linux'
+    ? (isMusl() ? 'linux-musl' : 'linux')
+    : (os === 'darwin' || os === 'win32') ? os : null;
+  let archKey = { x64: 'x64', x86_64: 'x64', arm64: 'arm64', aarch64: 'arm64' }[arch()];
+  if (!osKey || !archKey) return null;
+  if (osKey === 'win32' && archKey === 'arm64' && !existsSync(join(dir, 'agent-browser-win32-arm64.exe'))) {
+    archKey = 'x64';
+  }
+  const bin = join(dir, `agent-browser-${osKey}-${archKey}${osKey === 'win32' ? '.exe' : ''}`);
   return existsSync(bin) ? bin : null;
+}
+
+// The shim repairs a missing exec bit before spawning (postinstall may not have
+// run — bun blocks lifecycle scripts by default). Skipping the shim means doing
+// it here, on the platforms where it can matter.
+function ensureExecutable(bin) {
+  if (platform() === 'win32') return;
+  try {
+    accessSync(bin, constants.X_OK);
+  } catch {
+    try {
+      chmodSync(bin, 0o755);
+    } catch (error) {
+      process.stderr.write(`arya browser lane: cannot make ${bin} executable: ${error.message}\n`);
+    }
+  }
 }
 
 function controlDir() {
@@ -151,6 +189,14 @@ function main() {
   const args = browserArgs(settings);
   const flagKeys_ = flagKeys(text(settings.browserToolFlags));
   const native = nativeBin();
+  // A silent shim fallback is how issue #2 survived nine releases: nothing ever
+  // said the native spawn had not happened. stderr is piped to the host's MCP
+  // log and never carries protocol bytes.
+  if (!native) {
+    process.stderr.write(`arya browser lane: no native agent-browser binary for ${platform()}-${arch()}; using the npm shim\n`);
+  } else {
+    ensureExecutable(native);
+  }
   // The daemon takes the browser executable from the environment. Measured
   // 2026-11-17: `mcp` server mode ignores the --executable-path flag in both
   // positions (its own Chrome opened either way) and honors

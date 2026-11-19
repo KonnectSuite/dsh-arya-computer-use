@@ -3,6 +3,14 @@
 All published versions of [Arya Computer Use](https://github.com/KonnectSuite/dsh-arya-computer-use), newest first.
 Release notes for every version also live on the [Releases page](https://github.com/KonnectSuite/dsh-arya-computer-use/releases); dates are the npm publish times.
 
+## 1.0.12 — 2026-11-19
+
+- **The web lane now spawns agent-browser's native binary directly** (issue #2, reported by shuning0128). `nativeBin()` looked for the executable at the **package root**, but `agent-browser` ships every native beside `bin/agent-browser.js`, so the lookup never matched and the launcher fell back to the npm shim on every run. The shim spawns the daemon with `stdio:'inherit'` + `windowsHide:false`, and Windows gives a console window to a console process that inherits none — so a black `agent-browser-win32-x64.exe` window appeared on the desktop at every startup, hidden a few seconds later by this plugin's own console watcher. Present in every release since 1.0.3.
+- The native is resolved **beside the shim** (`dirname(SHIM)`), the directory the shim itself resolves `join(__dirname, binaryName)` from, so the path tracks the package layout instead of assuming one.
+- Same-class gaps closed while there: musl libc (Alpine) now resolves `agent-browser-linux-musl-<arch>` exactly as the shim decides it, the `x86_64`/`aarch64` arch aliases are accepted, and the win32-arm64 → x64 fallback checks the directory it will actually spawn from (that native is not shipped, so the fallback is what runs).
+- The shim's defensive exec-bit repair (`chmod 0o755` when a postinstall did not run) is carried over to the native spawn, on the platforms where it can matter.
+- A shim fallback is no longer silent: the launcher writes one stderr line naming the platform when it finds no native binary. Measured on this machine: the fixed launcher's direct child is `agent-browser-win32-x64.exe` and that daemon owns **zero** console windows, while the installed 1.0.11 chain (`launcher → agent-browser.js shim → agent-browser-win32-x64.exe`) still carries its window, hidden by the watcher.
+
 ## 1.0.11 — 2026-11-17
 
 - New setting **Browser executable path**: an absolute path to `msedge.exe`, `chrome.exe`, `brave.exe` … that the web lane launches when it starts its own browser. Reported by shuning0128 in [issue #1](https://github.com/KonnectSuite/dsh-arya-computer-use/issues/1): agent-browser's auto-launch checks its own download cache and system Chrome only, so a machine with Edge and no Chrome gets `Auto-launch failed: Chrome not found`. Empty keeps the old behaviour.
