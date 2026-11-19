@@ -502,3 +502,23 @@ carries no activation/import/factory/keyed-slot error; a cold start reproduces t
 Notepad on Win11 is single-instance, so `launch notepad.exe` attaches to the user's
 window — the harness opened its own scratch file and targeted only that window, then
 closed both tabs it created through the window's own Close Tab affordance.
+
+- **Published 2026-11-19: 1.0.12** (user-approved gate 3). npm `latest` + catalog recorded +
+  tag v1.0.12 -> 5d05911 (`index.json: 1.0.12`) + GitHub release v1.0.12 with the CHANGELOG
+  entry as notes; sha256 0ebad5e646ee…, 23 files, 121.9 kB packed / 393.6 kB unpacked, npm
+  shasum 28d5b4d3…. `check-catalogue-parity.mjs` exits 0: catalog 1.0.12, npm 1.0.12,
+  sha256 ok, 0 errors / 0 warnings. `origin/main` == `v1.0.12` == 5d05911, so the tag-pinned
+  jsDelivr listing URL serves the tree that carries the new `index.json`.
+  Recovery worth remembering: the **first** release run published the package and then exited
+  1 — npm accepted it ("may take a few minutes to become available") while the script's 180 s
+  poll of the tarball URL was still seeing 404, so the index sync, tag, push, GitHub release
+  and catalogue steps never ran. The correct recovery is to re-run the same command: its
+  already-published guard (`release-plugin.mjs:297-312`) reported "already on the registry
+  with these exact bytes — nothing to publish" and completed the rest. Never hand-edit
+  `index.json`, never hand-cut the tag, never re-publish a version.
+  npmmirror: manual sync queued for 1.0.12 with the working form
+  `PUT https://registry.npmmirror.com/-/package/@aryacode%2Fdsh-plugin-arya-computer-use/syncs`
+  (201, id 6aff7fface56bbdeae4c239b, state waiting).
+  Issue #2: bilingual thank-you + confirmation of his diagnosis + the 1.0.3-1.0.11 blast
+  radius + the measured A/B posted (comment 7024658122). The issue is left **OPEN** by the
+  maintainer's instruction — close only with explicit approval or after 5 days (2026-11-24).
