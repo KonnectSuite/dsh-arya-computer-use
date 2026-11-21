@@ -121,6 +121,9 @@ window.__ModuleLoader__.load({
         browse: '选择文件夹…', chooseFile: '选择文件…', noFiles: '该文件夹中没有匹配的文件', detectedBrowsers: '检测到的浏览器', noDetectedBrowsers: '未检测到浏览器，请手动选择文件',
         technical: '技术详情', copy: '复制', copied: '已复制', truncatedAt: '内容已截断至', readOnly: '只读', saveSaving: '正在保存…',
         overridden: '已覆盖', reset: '恢复默认', invalidValue: '值无效', invalidRange: '需为范围内的整数', invalidChord: '需为按键或组合键，例如 F8 或 Ctrl+Alt+K', toolsUnit: '个工具',
+        cardEngineSession: '引擎会话', cardCallLimits: '调用限制', cardStopResume: '停止与恢复', cardIndicator: '指示器', cardOverlay: '覆盖层', cardGeometry: '位置与尺寸',
+        cardLaunch: '启动方式', cardNetworkPolicy: '网络与策略', cardToolSurface: '工具面板',
+        factEngine: '引擎', factProfile: '工具档案', factNative: '原生二进制', factTools: '工具', factCeiling: '单次上限', factRetry: '重试基数', factState: '状态',
       },
       en: {
         nav: 'Computer Use', title: 'Arya Computer Use', pluginDescription: 'Drives Windows apps through accessibility controls, shows a takeover indicator, and stops on Esc.',
@@ -205,6 +208,9 @@ window.__ModuleLoader__.load({
         browse: 'Browse…', chooseFile: 'Choose file…', noFiles: 'No matching files in that folder', detectedBrowsers: 'Detected browsers', noDetectedBrowsers: 'None detected — use Choose file',
         technical: 'Technical details', copy: 'Copy', copied: 'Copied', truncatedAt: 'truncated at ', readOnly: 'Read-only', saveSaving: 'Saving…',
         overridden: 'Overridden', reset: 'Reset to default', invalidValue: 'invalid value', invalidRange: 'needs a whole number in range', invalidChord: 'use a key or combination such as F8 or Ctrl + Alt + K', toolsUnit: 'tools',
+        cardEngineSession: 'Engine session', cardCallLimits: 'Call limits', cardStopResume: 'Stop and resume', cardIndicator: 'Indicator', cardOverlay: 'Overlay', cardGeometry: 'Position & size',
+        cardLaunch: 'Launch', cardNetworkPolicy: 'Network & policy', cardToolSurface: 'Tool surface',
+        factEngine: 'Engine', factProfile: 'Tool profile', factNative: 'Native binary', factTools: 'Tools', factCeiling: 'Per-call ceiling', factRetry: 'Retry base', factState: 'State',
       },
     };
     // Translations: apply() binds the registered namespace once; Card refreshes it
@@ -317,20 +323,30 @@ window.__ModuleLoader__.load({
       progressOverlayX: 'invalidRange', progressOverlayY: 'invalidRange',
       stopShortcut: 'invalidChord', progressLockShortcut: 'invalidChord',
     };
-    // House layout (DeveloperToolsRow anatomy): title + description left, control
-    // right. Only host tokens for color; no feature stylesheet, no feature classes.
-    const rowStyle = { display: 'flex', gap: '14px', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', flexWrap: 'wrap' };
+    // House visual language: hairline rows inside bordered cards (the
+    // ChangedFiles.module.css:2 recipe), bili pill tabs, compact right-aligned
+    // number inputs (General's font-size pattern), icon-card position pickers
+    // (General's Appearance pattern). Host tokens only — no feature stylesheet.
+    const hair = '0.5px solid var(--dsw-alias-border-l2,#8885)';
+    const rowStyle = { display: 'flex', gap: '14px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', flexWrap: 'wrap' };
     const mainStyle = { flex: '1 1 260px', minWidth: '220px' };
     const titleStyle = { fontSize: '13.5px', fontWeight: 500 };
     const descStyle = { margin: '3px 0 0', fontSize: '12.5px', lineHeight: 1.5, color: 'var(--dsw-alias-label-secondary,#61666b)' };
     const groupStyle = { fontSize: '11.5px', fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--dsw-alias-label-tertiary,#81858c)' };
     const controlsStyle = { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' };
+    const monoStyle = { fontSize: '12px', fontFamily: 'var(--ds-font-family-code,ui-monospace,monospace)', color: 'var(--dsw-alias-label-secondary,#61666b)', overflowWrap: 'anywhere', textAlign: 'right' };
+    const cardStyle = { border: hair, borderRadius: 'var(--dsw-radius-lg,12px)', background: 'var(--dsw-alias-bg-layer-1,transparent)', marginBottom: '14px', overflow: 'hidden' };
+    const tabStyle = (active) => ({ padding: '5px 12px', borderRadius: 'var(--dsw-radius-md,8px)', border: '0.5px solid var(--dsw-alias-border-l3,#9998)', background: active ? 'var(--dsw-alias-bg-layer-3,#eee)' : 'transparent', color: 'inherit', font: 'inherit', fontSize: '13px', cursor: 'pointer' });
     const row = (key, titleKey, descKey, control) => h('div', { key, style: rowStyle },
       h('div', { style: mainStyle }, h('span', { style: titleStyle }, tr(titleKey)), descKey ? h('p', { style: descStyle }, tr(descKey)) : null),
       control);
-    const head = (key, titleKey, end) => h('div', { key, style: { display: 'flex', alignItems: 'center', gap: '10px', margin: '20px 0 2px' } },
-      h('span', { style: groupStyle }, tr(titleKey)), end ? h('span', { style: { marginLeft: 'auto' } }, end) : null);
-    const subhead = (key, titleKey) => h('div', { key, style: { margin: '14px 0 0', ...groupStyle } }, tr(titleKey));
+    // A house card: bold internal title with an optional right slot, then
+    // hairline-separated rows padded to the border — the first-party card shape.
+    const card = (key, titleKey, rows, end) => h('div', { key, style: cardStyle },
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px 10px' } },
+        h('span', { style: { fontSize: '14px', fontWeight: 600 } }, tr(titleKey)),
+        end ? h('span', { style: { marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' } }, end) : null),
+      ...rows.filter(Boolean).map((child, index) => h('div', { style: { padding: '0 14px', borderTop: index ? hair : 'none' } }, child)));
     const valueProps = (name, model, shell, extra, idp) => {
       const st = model.field(name), m = meta[name] || {};
       const hintKey = m.hint !== undefined ? m.hint : hasKey(name + 'Hint') ? name + 'Hint' : undefined;
@@ -455,32 +471,43 @@ window.__ModuleLoader__.load({
           st.text ? h(P.Button, { variant: 'ghost', size: 'sm', disabled: !shell.writable, onClick: () => { model.edit(name, ''); setNote(''); } }, tr('clearShortcut')) : null,
           note ? h('span', { style: descStyle }, note) : null));
     }
-    // Status: three one-line rows, each a StateDot plus the sentence the facts files
-    // support, plus a collapsed technical disclosure. A failure is exactly one line
-    // and never touches the form.
+    // Status: three house stat cards (the bili Overview pattern) — a StateDot and
+    // title header with fact chips, mono fact lines, and the collapsed technical
+    // disclosure. A failure is exactly one card and never touches the form.
     function StatusSection({ status, statusError, writable, onResume, load }) {
       const [open, setOpen] = React.useState(false), [copied, setCopied] = React.useState(false);
       const engines = status?.engines || {}, lanes = status?.lanes || {}, takeover = status?.takeover || {}, versions = status?.engines?.versions || {};
       const modeName = (mode) => (mode ? ((tr('statusMode') || {})[String(mode).replace(/-/g, '')] || mode) : tr('statusNone'));
       const browser = lanes.browser, desktop = lanes.desktop;
       const chip = (tone, text) => h(P.Tag, { tone }, text);
-      const laneRow = (key, state, sentence, chips) => h('div', { key, style: rowStyle },
-        h('div', { style: { ...mainStyle, display: 'flex', alignItems: 'baseline', gap: '9px' } },
-          h(P.StateDot, { state }), h('span', { style: titleStyle }, sentence)),
-        h('div', { style: controlsStyle }, ...(chips || [])));
+      const fact = (key, labelKey, value) => h('div', { key, style: { display: 'flex', gap: '12px', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0' } },
+        h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-secondary,#61666b)' } }, tr(labelKey)),
+        h('span', { style: monoStyle }, value));
+      const statCard = (key, state, titleKey, facts, chips, foot) => h('div', { key, style: cardStyle },
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '11px 14px 8px' } },
+          h(P.StateDot, { state }), h('span', { style: { fontSize: '13.5px', fontWeight: 600 } }, tr(titleKey)),
+          chips && chips.length ? h('span', { style: { marginLeft: 'auto', display: 'flex', gap: '6px' } }, ...chips) : null),
+        h('div', { style: { padding: '2px 14px 12px' } }, ...facts.filter(Boolean), foot || null));
       return h('div', { 'data-arya-status': 'true' },
         statusError && !status
-          ? h('div', { style: rowStyle }, h(P.StateDot, { state: 'error' }), h('span', { style: titleStyle }, tr('statusUnavailable')))
+          ? h('div', { style: { ...cardStyle, display: 'flex', gap: '9px', alignItems: 'center', padding: '12px 14px' } }, h(P.StateDot, { state: 'error' }), h('span', { style: titleStyle }, tr('statusUnavailable')))
           : h(React.Fragment, null,
-            laneRow('lane-browser', browser && browser.native ? 'done' : 'warning',
-              tr('statusLaneBrowser') + ' — agent-browser ' + (versions['agent-browser'] || '?') + ' · ' + (browser ? (browser.toolsProfile || '?') + ' · ' + (browser.stripMode || '?') + ' · ' + modeName(browser.nativeMode) : tr('statusUnavailable'))),
-            laneRow('lane-desktop', desktop && desktop.nativeMode !== 'shim' ? 'done' : 'warning',
-              tr('statusLaneDesktop') + ' — agent-desktop ' + (versions['agent-desktop'] || '?') + ' · ' + (desktop ? desktop.toolsExposed + ' / ' + desktop.toolsTotal + ' · ' + desktop.toolPreset + ' · ' + desktop.engineCallTimeoutMs + ' ' + tr('ms') : tr('statusUnavailable')),
-              [engines.elevated === true ? chip('success', tr('elevatedYes')) : engines.elevated === false ? chip('danger', tr('elevatedNo')) : chip('quiet', tr('elevatedUnknown')),
-               engines.lease ? (engines.lease.present ? chip('quiet', tr('leaseYes')) : chip('danger', tr('leaseNo'))) : null].filter(Boolean)),
-            laneRow('lane-session', takeover.running ? 'ongoing' : takeover.paused ? 'warning' : 'idle',
-              tr('statusLaneSession') + ' — ' + tr(takeover.running ? 'statusTakeoverRunning' : takeover.paused ? 'statusTakeoverPaused' : 'statusTakeoverIdle'),
-              takeover.paused ? [h(P.Button, { key: 'resume', variant: 'outline', size: 'sm', 'data-arya-resume': true, disabled: !writable, onClick: onResume }, tr('resume'))] : [])),
+            statCard('lane-browser', browser && browser.native ? 'done' : 'warning', 'statusLaneBrowser', [
+              fact('f-engine', 'factEngine', 'agent-browser ' + (versions['agent-browser'] || '?')),
+              browser ? fact('f-profile', 'factProfile', (browser.toolsProfile || '?') + ' · ' + (browser.stripMode || '?')) : null,
+              browser ? fact('f-native', 'factNative', modeName(browser.nativeMode)) : null,
+            ]),
+            statCard('lane-desktop', desktop && desktop.nativeMode !== 'shim' ? 'done' : 'warning', 'statusLaneDesktop', [
+              fact('f-engine', 'factEngine', 'agent-desktop ' + (versions['agent-desktop'] || '?')),
+              desktop ? fact('f-tools', 'factTools', desktop.toolsExposed + ' / ' + desktop.toolsTotal + ' · ' + desktop.toolPreset) : null,
+              desktop ? fact('f-ceiling', 'factCeiling', desktop.engineCallTimeoutMs + ' ' + tr('ms')) : null,
+              desktop ? fact('f-retry', 'factRetry', desktop.leaseRetryBaseMs + ' ' + tr('ms')) : null,
+            ], [engines.elevated === true ? chip('success', tr('elevatedYes')) : engines.elevated === false ? chip('danger', tr('elevatedNo')) : chip('quiet', tr('elevatedUnknown')),
+              engines.lease ? (engines.lease.present ? chip('quiet', tr('leaseYes')) : chip('danger', tr('leaseNo'))) : null].filter(Boolean)),
+            statCard('lane-session', takeover.running ? 'ongoing' : takeover.paused ? 'warning' : 'idle', 'statusLaneSession', [
+              fact('f-state', 'factState', tr(takeover.running ? 'statusTakeoverRunning' : takeover.paused ? 'statusTakeoverPaused' : 'statusTakeoverIdle')),
+            ], null, takeover.paused ? h('div', { style: { ...controlsStyle, marginTop: '6px' } },
+              h(P.Button, { variant: 'outline', size: 'sm', 'data-arya-resume': true, disabled: !writable, onClick: onResume }, tr('resume'))) : null)),
         h(P.DisclosureRow, { icon: h(P.IconDataOutlineRegular, { size: 14 }), title: tr('technical'), open, expandable: true, onToggle: () => setOpen((v) => !v) },
           status ? h('div', null,
             h(P.JsonBlock, { label: 'status json', payload: status, truncatedLabel: (total) => tr('truncatedAt') + total }),
@@ -520,88 +547,135 @@ window.__ModuleLoader__.load({
       const segRow = (name, titleKey, options, descKey) => row(name, titleKey, descKey === undefined ? (hasKey(name + 'Hint') ? name + 'Hint' : null) : descKey,
         h(P.SegmentedControl, { id: idPrefix + '-' + name, label: tr(titleKey), value: model.field(name).text, options, disabled: !writable, onChange: (next) => model.edit(name, next) }));
       const valueRow = (name, extra) => h(P.SettingsValueField, { key: name, ...valueProps(name, model, shell, extra, idPrefix) });
+      // Compact right-aligned number rows (General's font-size pattern): the model
+      // still stages, validates and fences every edit.
+      const numRow = (name, disabledExtra) => {
+        const st = model.field(name), m = meta[name] || {};
+        const hintKey = m.hint !== undefined ? m.hint : hasKey(name + 'Hint') ? name + 'Hint' : null;
+        return h('div', { key: name, 'data-arya-num': name, style: rowStyle },
+          h('div', { style: mainStyle },
+            h('span', { style: titleStyle }, tr(m.label || name)),
+            hintKey ? h('p', { style: descStyle }, tr(hintKey)) : null,
+            st.invalid ? h('p', { style: { ...descStyle, marginTop: '4px' } }, tr(invalidKeys[name] || 'invalidRange')) : null),
+          h('div', { style: controlsStyle },
+            st.overridden ? h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+              h(P.Tag, { tone: 'quiet' }, tr('overridden')),
+              h(P.Button, { variant: 'ghost', size: 'sm', disabled: !writable, onClick: () => model.resetField(name) }, tr('reset'))) : null,
+            h('input', {
+              id: idPrefix + '-' + name, value: st.text, disabled: !writable || disabledExtra === true,
+              'aria-invalid': st.invalid ? 'true' : 'false', 'aria-label': tr(m.label || name),
+              style: { width: '120px', padding: '5px 8px', border: '0.5px solid var(--dsw-alias-border-l4,#9996)', borderRadius: 'var(--dsw-radius-md,8px)', background: 'var(--dsw-alias-bg-layer-1,transparent)', color: 'inherit', font: 'inherit', fontSize: '13px' },
+              onChange: (event) => model.edit(name, event.target.value),
+            })));
+      };
+      // Icon-card position pickers (General's Appearance pattern).
+      const iconCardsRow = (name, titleKey, descKey, options) => {
+        const st = model.field(name);
+        return h('div', { key: name, 'data-arya-iconcards': name, style: rowStyle },
+          h('div', { style: mainStyle }, h('span', { style: titleStyle }, tr(titleKey)), descKey ? h('p', { style: descStyle }, tr(descKey)) : null),
+          h('div', { style: { ...controlsStyle, gap: '6px' } }, options.map((option) => {
+            const active = st.text === option.value;
+            return h('button', {
+              key: option.value, type: 'button', disabled: !writable, 'aria-pressed': active ? 'true' : 'false',
+              onClick: () => model.edit(name, option.value),
+              style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', minWidth: '58px', padding: '8px 10px', border: active ? hair : '0.5px solid var(--dsw-alias-border-l3,#9998)', borderRadius: 'var(--dsw-radius-md,8px)', background: active ? 'var(--dsw-alias-bg-layer-3,#eee)' : 'transparent', color: 'inherit', font: 'inherit', fontSize: '11.5px', cursor: 'pointer' },
+            }, h('span', { style: { fontSize: '16px', lineHeight: 1 }, 'aria-hidden': 'true' }, option.glyph), option.label);
+          })));
+      };
+      // One screenful per lane (the bili pill tabs); switching tabs never
+      // unmounts the form, so staged drafts survive.
+      const tabs = [['desktop', 'desktopTitle'], ['indicator', 'indicatorTitle'], ['progress', 'progressTitle'], ['browser', 'browserTitle'], ['status', 'statusTitle']];
+      const [tab, setTab] = React.useState('desktop');
       return h(as, { 'data-arya-settings': 'true' },
         h(P.SettingsForm, {
           labels: { unavailable: tr('unavailable'), readOnly: tr('readOnly'), saveFailed: tr('failed'), save: tr('save'), saving: tr('saveSaving') },
           state: shell, onSave: () => model.save(), onDiscard: () => model.discard(),
         },
-          h('h2', { style: { margin: '4px 0 0', fontSize: '17px', fontWeight: 600 } }, tr('title')),
+          // Header: the Remote & Mobile pattern — title + version chip, package chip right.
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } },
+            h('h2', { style: { margin: '4px 0 0', fontSize: '17px', fontWeight: 600 } }, tr('title')),
+            h(P.Tag, { tone: 'quiet' }, 'v' + ((status && status.version) || '1.0.14')),
+            h('span', { style: { marginLeft: 'auto', ...monoStyle, border: '0.5px solid var(--dsw-alias-border-l4,#9996)', borderRadius: 'var(--dsw-radius-sm,6px)', padding: '3px 8px' } }, 'dsh-plugin-arya-computer-use')),
           h('p', { style: descStyle }, tr('intro')),
-          // Lane 1 — how the desktop engine drives: consent for real input, the tool
-          // surface, and the call limits.
-          head('desktop', 'desktopTitle'),
-          h('section', { 'data-arya-desktop-settings': true },
-            switchRow('headedDefault', 'headedDefault', 'headedDefaultHint'),
-            switchRow('overlayDefault', 'overlayDefault', 'overlayDefaultHint'),
-            switchRow('driverLockEnabled', 'driverLock', 'driverLockHint'),
-            segRow('toolPreset', 'toolPreset', [{ value: 'lite', label: tr('toolPresetLite') }, { value: 'lazy', label: tr('toolPresetLazy') }]),
-            valueRow('engineCallTimeoutMs'),
-            valueRow('leaseRetryBaseMs'),
-            h(FolderField, { name: 'screenshotDir', model, shell, picker, idp: idPrefix })),
-          // Lane 2 — what you see while the agent drives.
-          head('indicator', 'indicatorTitle',
-            h(P.Button, { variant: 'outline', size: 'sm', disabled: !writable, onClick: () => runAction({ previewToken: Date.now() }, 'previewed') }, tr('preview'))),
-          h('section', { 'data-arya-indicator-settings': true },
-            switchRow('indicatorEnabled', 'indicator', 'indicatorHint'),
-            switchRow('cursorIndicatorEnabled', 'cursorIndicator', 'cursorIndicatorHint'),
-            switchRow('remoteIndicatorVisible', 'remoteVisible', 'remoteVisibleHint'),
-            segRow('indicatorPosition', 'position', [{ value: 'top', label: tr('top') }, { value: 'bottom', label: tr('bottom') }], null),
-            valueRow('indicatorIdleMs'),
-            valueRow('indicatorText'),
-            valueRow('pointerLabel')),
-          // Lane 3 — the progress overlay shares position and size with the takeover.
-          head('progress', 'progressTitle',
-            h(P.Button, { variant: 'outline', size: 'sm', 'data-arya-open-progress': true, disabled: !writable, onClick: () => runAction({ progressOverlayEnabled: true, progressPreviewToken: Date.now() }, 'previewed') }, tr('openProgress'))),
-          h('section', { 'data-arya-progress-settings': true },
-            switchRow('progressOverlayEnabled', 'progressOverlay', 'progressOverlayHint'),
-            switchRow('progressOverlayLocked', 'progressLocked', 'progressLockedHint'),
-            segRow('progressOverlayMode', 'progressMode', [{ value: 'summary', label: tr('progressModeSummary') }, { value: 'source', label: tr('progressModeSource') }], 'progressModeHint'),
-            valueRow('progressOverlayOpacity'),
-            valueRow('progressOverlayWidth'),
-            valueRow('progressOverlayHeight'),
-            h(MenuField, { name: 'progressOverlayPosition', model, shell, titleKey: 'progressPosition', hintKey: null, items: [
-              { id: 'top-right', short: tr('progress_topRight'), label: tr('progress_topRight') },
-              { id: 'top-left', short: tr('progress_topLeft'), label: tr('progress_topLeft') },
-              { id: 'bottom-right', short: tr('progress_bottomRight'), label: tr('progress_bottomRight') },
-              { id: 'bottom-left', short: tr('progress_bottomLeft'), label: tr('progress_bottomLeft') },
-              { id: 'custom', short: tr('progress_custom'), label: tr('progress_custom') }] }),
-            valueRow('progressOverlayX', { disabled: !writable || !positionCustom }),
-            valueRow('progressOverlayY', { disabled: !writable || !positionCustom }),
-            h(ShortcutRow, { name: 'progressLockShortcut', model, shell })),
-          // Lane 4 — the stop contract: Esc is always live; the custom chord is
-          // recorded, never typed. Resume lives in the session row of Status.
-          head('stop', 'stop'),
-          row('esc', 'escTitle', 'stopHint', h(P.Tag, { tone: 'neutral' }, tr('escAlways'))),
-          h(ShortcutRow, { name: 'stopShortcut', model, shell }),
-          // Lane 5 — the web lane: measured profile counts, native pickers for every
-          // path, and the honest engine notes (restart, domains-vs-profile).
-          head('browser', 'browserTitle'),
-          h('section', { 'data-arya-browser-settings': true },
-            subhead('web-tools', 'webToolsGroup'),
-            h(MenuField, { name: 'browserTools', model, shell, titleKey: 'browserTools', hintKey: 'browserToolsHint', items: [
-              ['core', 33], ['network', 9], ['state', 27], ['debug', 40], ['tabs', 13], ['react', 8], ['mobile', 15], ['webmcp', 4], ['all', 160],
-            ].map(([id, count]) => ({ id, short: id + ' · ' + count, label: id + ' · ' + count + ' ' + tr('toolsUnit') })) }),
-            segRow('browserToolFlags', 'browserFlags', [{ value: 'strip', label: tr('browserFlagsStrip') }, { value: 'lean', label: tr('browserFlagsLean') }, { value: 'off', label: tr('browserFlagsOff') }], 'browserFlagsHint'),
-            subhead('web-browser', 'webBrowserGroup'),
-            switchRow('browserHeaded', 'browserHeaded', 'browserHeadedHint'),
-            h(FolderField, { name: 'browserProfile', model, shell, picker, idp: idPrefix }),
-            valueRow('browserSession'),
-            valueRow('browserCdp'),
-            h(FileField, { name: 'browserStateFile', model, shell, picker, accept: /\.json$/i, idp: idPrefix }),
-            h(ExecutableField, { name: 'browserExecutablePath', model, shell, picker, browsers, idp: idPrefix }),
-            subhead('web-network', 'webNetworkGroup'),
-            valueRow('browserAllowedDomains'),
-            valueRow('browserNamespace'),
-            valueRow('browserIdleTimeout'),
-            h(FileField, { name: 'browserCaCert', model, shell, picker, accept: /\.(?:pem|crt)$/i, idp: idPrefix }),
-            switchRow('browserUseSystemCa', 'browserUseSystemCa', 'browserUseSystemCaHint'),
-            valueRow('browserDefaultTimeoutMs'),
-            valueRow('browserConfirmActions'),
-            h('p', { style: descStyle }, tr('browserRestart'))),
-          // Lane 6 — what is actually running, from the process that started it.
-          head('status', 'statusTitle',
-            h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconRefreshOutlineRegular, { size: 14 }), onClick: load }, tr('statusRefresh'))),
-          h(StatusSection, { status, statusError, writable, load, onResume: () => runAction({ resumeToken: Date.now() }, 'resumed') }),
+          h('div', { role: 'tablist', 'data-arya-tabs': true, style: { display: 'flex', gap: '6px', margin: '14px 0 16px', flexWrap: 'wrap' } },
+            tabs.map(([id, titleKey]) => h('button', { key: id, type: 'button', role: 'tab', 'data-arya-tab': id, 'aria-selected': tab === id ? 'true' : 'false', style: tabStyle(tab === id), onClick: () => setTab(id) }, tr(titleKey)))),
+          tab === 'desktop' ? h('div', { role: 'tabpanel', 'data-arya-desktop-settings': true },
+            card('engine-session', 'cardEngineSession', [
+              switchRow('headedDefault', 'headedDefault', 'headedDefaultHint'),
+              switchRow('overlayDefault', 'overlayDefault', 'overlayDefaultHint'),
+              switchRow('driverLockEnabled', 'driverLock', 'driverLockHint'),
+              segRow('toolPreset', 'toolPreset', [{ value: 'lite', label: tr('toolPresetLite') }, { value: 'lazy', label: tr('toolPresetLazy') }]),
+            ]),
+            card('call-limits', 'cardCallLimits', [
+              numRow('engineCallTimeoutMs'),
+              numRow('leaseRetryBaseMs'),
+              h(FolderField, { name: 'screenshotDir', model, shell, picker, idp: idPrefix }),
+            ]),
+            // The stop contract: Esc is always live; the custom chord is recorded,
+            // never typed. Resume lives in the session card of Status.
+            card('stop-resume', 'cardStopResume', [
+              row('esc', 'escTitle', 'stopHint', h(P.Tag, { tone: 'neutral' }, tr('escAlways'))),
+              h(ShortcutRow, { name: 'stopShortcut', model, shell }),
+            ])) : null,
+          tab === 'indicator' ? h('div', { role: 'tabpanel', 'data-arya-indicator-settings': true },
+            card('indicator', 'cardIndicator', [
+              switchRow('indicatorEnabled', 'indicator', 'indicatorHint'),
+              switchRow('cursorIndicatorEnabled', 'cursorIndicator', 'cursorIndicatorHint'),
+              switchRow('remoteIndicatorVisible', 'remoteVisible', 'remoteVisibleHint'),
+              iconCardsRow('indicatorPosition', 'position', null, [{ value: 'top', glyph: '↑', label: tr('top') }, { value: 'bottom', glyph: '↓', label: tr('bottom') }]),
+              numRow('indicatorIdleMs'),
+              valueRow('indicatorText'),
+              valueRow('pointerLabel'),
+            ], h(P.Button, { variant: 'outline', size: 'sm', disabled: !writable, onClick: () => runAction({ previewToken: Date.now() }, 'previewed') }, tr('preview')))) : null,
+          tab === 'progress' ? h('div', { role: 'tabpanel', 'data-arya-progress-settings': true },
+            card('overlay', 'cardOverlay', [
+              switchRow('progressOverlayEnabled', 'progressOverlay', 'progressOverlayHint'),
+              switchRow('progressOverlayLocked', 'progressLocked', 'progressLockedHint'),
+              segRow('progressOverlayMode', 'progressMode', [{ value: 'summary', label: tr('progressModeSummary') }, { value: 'source', label: tr('progressModeSource') }], 'progressModeHint'),
+              h(ShortcutRow, { name: 'progressLockShortcut', model, shell }),
+            ], h(P.Button, { variant: 'outline', size: 'sm', 'data-arya-open-progress': true, disabled: !writable, onClick: () => runAction({ progressOverlayEnabled: true, progressPreviewToken: Date.now() }, 'previewed') }, tr('openProgress'))),
+            card('geometry', 'cardGeometry', [
+              numRow('progressOverlayOpacity'),
+              numRow('progressOverlayWidth'),
+              numRow('progressOverlayHeight'),
+              iconCardsRow('progressOverlayPosition', 'progressPosition', null, [
+                { value: 'top-left', glyph: '↖', label: tr('progress_topLeft') },
+                { value: 'top-right', glyph: '↗', label: tr('progress_topRight') },
+                { value: 'bottom-left', glyph: '↙', label: tr('progress_bottomLeft') },
+                { value: 'bottom-right', glyph: '↘', label: tr('progress_bottomRight') },
+                { value: 'custom', glyph: '⌖', label: tr('progress_custom') }]),
+              numRow('progressOverlayX', !positionCustom),
+              numRow('progressOverlayY', !positionCustom),
+            ])) : null,
+          tab === 'browser' ? h('div', { role: 'tabpanel', 'data-arya-browser-settings': true },
+            card('launch', 'cardLaunch', [
+              switchRow('browserHeaded', 'browserHeaded', 'browserHeadedHint'),
+              h(ExecutableField, { name: 'browserExecutablePath', model, shell, picker, browsers, idp: idPrefix }),
+              h(FolderField, { name: 'browserProfile', model, shell, picker, idp: idPrefix }),
+              valueRow('browserSession'),
+              valueRow('browserCdp'),
+              h(FileField, { name: 'browserStateFile', model, shell, picker, accept: /\.json$/i, idp: idPrefix }),
+            ]),
+            card('network-policy', 'cardNetworkPolicy', [
+              valueRow('browserAllowedDomains'),
+              valueRow('browserNamespace'),
+              valueRow('browserIdleTimeout'),
+              h(FileField, { name: 'browserCaCert', model, shell, picker, accept: /\.(?:pem|crt)$/i, idp: idPrefix }),
+              switchRow('browserUseSystemCa', 'browserUseSystemCa', 'browserUseSystemCaHint'),
+              numRow('browserDefaultTimeoutMs'),
+              valueRow('browserConfirmActions'),
+              h('p', { style: { ...descStyle, padding: '4px 0 10px' } }, tr('browserRestart')),
+            ]),
+            card('tool-surface', 'cardToolSurface', [
+              h(MenuField, { name: 'browserTools', model, shell, titleKey: 'browserTools', hintKey: 'browserToolsHint', items: [
+                ['core', 33], ['network', 9], ['state', 27], ['debug', 40], ['tabs', 13], ['react', 8], ['mobile', 15], ['webmcp', 4], ['all', 160],
+              ].map(([id, count]) => ({ id, short: id + ' · ' + count, label: id + ' · ' + count + ' ' + tr('toolsUnit') })) }),
+              segRow('browserToolFlags', 'browserFlags', [{ value: 'strip', label: tr('browserFlagsStrip') }, { value: 'lean', label: tr('browserFlagsLean') }, { value: 'off', label: tr('browserFlagsOff') }], 'browserFlagsHint'),
+            ])) : null,
+          tab === 'status' ? h('div', { role: 'tabpanel', 'data-arya-status-tab': true },
+            h('div', { style: { display: 'flex', justifyContent: 'flex-end', margin: '0 0 10px' } },
+              h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconRefreshOutlineRegular, { size: 14 }), onClick: load }, tr('statusRefresh'))),
+            h(StatusSection, { status, statusError, writable, load, onResume: () => runAction({ resumeToken: Date.now() }, 'resumed') })) : null,
           message ? h('p', { key: 'message', role: 'status', 'aria-live': 'polite', style: descStyle }, message) : null));
     }
     // Hosts without the primitives catalog keep a working plain form over the same

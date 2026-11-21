@@ -724,15 +724,31 @@ stays out of the repo.
   probe (`index.js` `detectedBrowsers()` — existsSync over Edge/Chrome/Brave/Chromium; measured
   here: Edge + Chrome).
 
-### What was built (client.js ~795 L)
+### What was built (client.js ~905 L)
 
-- Kit controls only: Switch ×10, SegmentedControl ×4 (toolPreset, indicatorPosition,
-  progressOverlayMode, browserToolFlags), Menu for browserTools (labels carry the MEASURED
-  counts — core · 33 … all · 160), Menu for progressOverlayPosition, SettingsValueField +
-  custom parse for every text/number field, ShortcutKeys record/clear for the two shortcuts,
-  Status = three StateDot rows + Tag chips + Resume Button (only while paused) + DisclosureRow
-  → JsonBlock + copy. Zero feature-owned CSS; inline flex rows on host tokens only. The
-  62 keyed chat rows (rule 9) and the host half are untouched.
+- First cut (9fb55d0) used the kit flat — Switch ×10, SegmentedControl ×4, Menu for
+  browserTools/progressOverlayPosition, SettingsValueField + custom parse per field,
+  ShortcutKeys record/clear — and the maintainer rejected it on VISUALS ("I do not approve,
+  this looks less visually appealing than the original"). The page was house-correct but
+  flat: one long column of identical rows. So a visual pass followed, patterned on screens
+  the app itself ships (General, Agent presets, Remote & Mobile, Arya Plugin Market, bili,
+  Hooks — screenshots in `.tmp-verify/cmp-*.png`): header = title + version Tag + mono
+  package chip right; **pill tab strip** (Desktop lane · Takeover indicator · Progress
+  overlay · Web lane · Status, one screenful per tab); bordered **cards** with bold internal
+  headings and hairline-separated rows (Engine session / Call limits / Stop and resume;
+  Indicator; Overlay / Position & size; Launch / Network & policy / Tool surface); **glyph
+  cards** for Banner position (↑ ↓) and Overlay position (↖ ↗ ↙ ↘ ⌖) the way General picks
+  Appearance; **compact right-aligned number inputs** the way General's font-size row does;
+  **Status as three stat cards** with monospace fact lines the way bili's Overview does.
+  Card/tab/number styling is inline flex on host tokens only (`0.5px solid
+  var(--dsw-alias-border-l2)`, `var(--dsw-radius-lg)`, `var(--dsw-alias-bg-layer-1/-3)`,
+  `var(--ds-font-family-code)`) — still zero feature-owned CSS.
+- Kit controls: Switch ×10, SegmentedControl ×3 (toolPreset, progressOverlayMode,
+  browserToolFlags), Menu for browserTools (labels carry the MEASURED counts — core · 33 …
+  all · 160), SettingsValueField + custom parse for the text fields, ShortcutKeys
+  record/clear for the two shortcuts, Resume Button (only while paused) inside the session
+  stat card, DisclosureRow → JsonBlock + copy. The 62 keyed chat rows (rule 9) and the host
+  half are untouched.
 - Two real bugs found and fixed on Dev AryaCode:
   1. **`ctx.inject(['remote.directoryPicker'])` never fires.** The cordis proxy throws
      `cannot get property "directoryPicker" without inject` for subpath-only injects — the
@@ -756,19 +772,33 @@ stays out of the repo.
   in the page JS; `focus_window physical:true` refuses on the dev main window
   (`did not become foreground`), so CDP DOM paths, not OS keystrokes, drive the probes.
 
-### Verification (V7/V8 re-run on the fixed bundle; V1–V6/V9 stand from the 1.0.13 record)
+### Verification (V7/V8 re-run on the fixed bundle AND again on the visual-pass build; V1–V6/V9 stand from the 1.0.13 record)
 
-- V7 status route: version 1.0.14, `engines.browsers` = Edge, Chrome, lease present,
+- V7 status route (both builds): version 1.0.14, `engines.browsers` = Edge, Chrome, lease present,
   desktop `package-bin` / browser `platform-package`, 28/28 tools, mcp mounted.
-- V8 battery (CDP DOM, Dev AryaCode, tarball installed in the dev profile): five sections, 10
-  switches, 9 segmented tabs, Browse ×2, Choose-file ×3, Detected browsers ×1, Record ×2,
-  Save/Discard, kbd ×2, Overridden tags ×2 + Reset ×2 (dev carry-overs), no invalid marks,
-  status lines "agent-browser 0.43.0 · core · strip · platform package" / "agent-desktop 1.3.1 ·
-  28 / 28 · lite · 150000 ms" + elevation/lease chips. Screenshots:
+- V8 battery (CDP DOM, Dev AryaCode, tarball installed in the dev profile) — first cut: five
+  sections, 10 switches, 9 segmented tabs, Browse ×2, Choose-file ×3, Detected browsers ×1,
+  Record ×2, Save/Discard, kbd ×2, Overridden tags ×2 + Reset ×2 (dev carry-overs), no invalid
+  marks, status lines "agent-browser 0.43.0 · core · strip · platform package" / "agent-desktop
+  1.3.1 · 28 / 28 · lite · 150000 ms" + elevation/lease chips. Screenshots:
   `.tmp-verify/v8-1014-page.png`, `.tmp-verify/v8-1014e-status.png`.
-- Interaction probes, all PASS: toggle → staged draft flips the switch → Save enabled →
-  persisted false through the write ladder → toggled back and restored true; invalid value
-  ("5" in Per-call ceiling) → inline "must be between 10000 and 300000", `aria-invalid`,
+- V15 battery, RE-RUN on the visual-pass build (tab-gated, so the harness clicks
+  `[data-arya-tab]` per panel): header title + version chip + package chip; tabs
+  desktop/indicator/progress/browser/status; per-tab counts all as designed — switches 3+3+2+2,
+  segmented 2+2+3 (glyph cards replaced the other two), nums (150000/800 · 800 ·
+  60/360/240/80/80 · 0), iconCardRows indicatorPosition 2 (↑ Top pressed) +
+  progressOverlayPosition 5 (↗ Top right pressed), Browse 1+1, Choose-file 3, Detected 1,
+  Record 1+1, Overridden 2 (dev carry-overs), status stat cards read
+  "agent-browser 0.43.0 / core · strip / platform package" and "agent-desktop 1.3.1 / 28 / 28 ·
+  lite / 150000 ms / 800 ms" + unknown/present chips + session idle. Anomaly noted, not chased:
+  the battery saw `saveEnabled: true` at fresh open (the kit's `save()` no-ops on an empty
+  plan, so a stray click is harmless; every later probe showed correct gating and the Status
+  screenshot shows the button grey). Screenshots of all five tabs:
+  `.tmp-verify/v15-{desktop,indicator,progress,browser,status}.png` — reviewed by eye, the page
+  reads house-native (cards, hairlines, pill tabs, glyph cards, mono facts).
+- Interaction probes, all PASS on BOTH builds: toggle → staged draft flips the switch → Save
+  enabled → persisted false through the write ladder → toggled back and restored true; invalid
+  value ("5" in Per-call ceiling) → inline "must be between 10000 and 300000", `aria-invalid`,
   Save stays disabled, persisted value untouched; browserTools menu with all nine measured
   counts; Detected browsers menu (Edge + Chrome with paths); Browse → the native
   "Select Workspace Directory" dialog opened → cancelled semantically through the desktop lane
