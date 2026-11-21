@@ -724,7 +724,7 @@ stays out of the repo.
   probe (`index.js` `detectedBrowsers()` — existsSync over Edge/Chrome/Brave/Chromium; measured
   here: Edge + Chrome).
 
-### What was built (client.js ~905 L)
+### What was built (client.js ~955 L, three builds)
 
 - First cut (9fb55d0) used the kit flat — Switch ×10, SegmentedControl ×4, Menu for
   browserTools/progressOverlayPosition, SettingsValueField + custom parse per field,
@@ -743,6 +743,31 @@ stays out of the repo.
   Card/tab/number styling is inline flex on host tokens only (`0.5px solid
   var(--dsw-alias-border-l2)`, `var(--dsw-radius-lg)`, `var(--dsw-alias-bg-layer-1/-3)`,
   `var(--ds-font-family-code)`) — still zero feature-owned CSS.
+- THIRD build, after "better but still not up to par with the old. the old had icons and tools
+  tips": the 1.0.12 presentation revived ON the kit skeleton — the arts factory verbatim
+  (monitor-with-rim, ghost-cursor pill, Esc keycap, overlay card, padlock, shield, keyboard —
+  each mirroring its toggle's state: indicatorEnabled=arts.indicator(on, position==='bottom'),
+  cursorIndicatorEnabled/overlayDefault/browserHeaded=arts.cursor,
+  progressOverlayEnabled=arts.progress, progressOverlayLocked=arts.lock,
+  headedDefault=arts.keyboard, driverLockEnabled=arts.shield, esc row=arts.esc); ⓘ on every
+  labelled field via the KIT `P.Tooltip` (`portal:true` — cards clip; `openOnClick:true` pins;
+  the old hand-rolled Info popover stays dead); hints MOVED from under-label paragraphs into
+  those tooltips; rows sit on the revived two-column `.arya-grid` (wide rows carry
+  `.arya-span`); all nine card headers carry a kit icon (Settings/Gauge/Stop/Personalization/
+  Fullscreen/Sliders/Globe/Shield/Checklist) and the two art-less switches get kit glyphs
+  (IconShareOutlineRegular, IconShieldOutlineRegular). The feature stylesheet is back but
+  BOUNDED: scoped to `[data-arya-settings]`, defining only the `--arya-*` token map (onto
+  `--dsw-alias-*`), the `a-*` art strokes and the grid — zero generic element rules, so kit
+  Button/Switch/Menu keep their own styling. `row/card/valueProps` were replaced by
+  `row(opts)/card(…, Icon)/fieldRow`; `P.SettingsValueField` is no longer used (custom stacked
+  field with the model's Overridden/Reset/invalid affordances inline).
+- Third real bug, caught in the screenshots before it shipped: every ⓘ painted a FILLED BLACK
+  DOT — the scoped CSS styled `.arya-art svg *` `fill:none` but never `.arya-info svg`, and the
+  SVG default fill is black, so the 16px circle rendered as a disc. Fix:
+  `.arya-info svg{width:13px;height:13px}` + `.arya-info svg *{fill:none;stroke:currentColor;…}`.
+  DOM-verified after redeploy: the ⓘ circle/path compute `fill:none`, stroke label-tertiary.
+  Lesson: a screenshot review catches what a DOM battery cannot — the v16 battery counted the
+  ⓘ and passed while every one of them was a black dot.
 - Kit controls: Switch ×10, SegmentedControl ×3 (toolPreset, progressOverlayMode,
   browserToolFlags), Menu for browserTools (labels carry the MEASURED counts — core · 33 …
   all · 160), SettingsValueField + custom parse for the text fields, ShortcutKeys
@@ -772,7 +797,7 @@ stays out of the repo.
   in the page JS; `focus_window physical:true` refuses on the dev main window
   (`did not become foreground`), so CDP DOM paths, not OS keystrokes, drive the probes.
 
-### Verification (V7/V8 re-run on the fixed bundle AND again on the visual-pass build; V1–V6/V9 stand from the 1.0.13 record)
+### Verification (V7/V8 re-run on the fixed bundle, the visual-pass build AND the icons build; V1–V6/V9 stand from the 1.0.13 record)
 
 - V7 status route (both builds): version 1.0.14, `engines.browsers` = Edge, Chrome, lease present,
   desktop `package-bin` / browser `platform-package`, 28/28 tools, mcp mounted.
@@ -796,6 +821,16 @@ stays out of the repo.
   screenshot shows the button grey). Screenshots of all five tabs:
   `.tmp-verify/v15-{desktop,indicator,progress,browser,status}.png` — reviewed by eye, the page
   reads house-native (cards, hairlines, pill tabs, glyph cards, mono facts).
+ - V16 battery, RE-RUN on the icons build (same tab-gated harness): per-tab arts 4/3/2/2 with the
+   accent states matching the ON toggles, infos 9/5/4/15, every grid 2 columns, all nine card
+   headers carry an icon (`expr-cards16.js`), tooltip probe PASS (click ⓘ → `[role=tooltip]` with
+   the hint text, second click unpins, outside `pointerdown` dismisses). Screenshots reviewed by
+   eye at `.tmp-verify/v16b-{desktop,indicator,progress,browser,status}.png` — arts render with
+   their accent states, the ⓘ reads as an outlined glyph (after the black-dot fix), the Overridden
+   tag + Reset to default and Detected browsers sit inline on the executable-path row, the status
+   tab keeps its three stat cards. Interaction probes re-run on THIS build: toggle → Save →
+   persisted → restored PASS; invalid value → inline range message + `aria-invalid` + Save blocked
+   + nothing written PASS.
 - Interaction probes, all PASS on BOTH builds: toggle → staged draft flips the switch → Save
   enabled → persisted false through the write ladder → toggled back and restored true; invalid
   value ("5" in Per-call ceiling) → inline "must be between 10000 and 300000", `aria-invalid`,

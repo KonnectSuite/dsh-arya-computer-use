@@ -323,10 +323,12 @@ window.__ModuleLoader__.load({
       progressOverlayX: 'invalidRange', progressOverlayY: 'invalidRange',
       stopShortcut: 'invalidChord', progressLockShortcut: 'invalidChord',
     };
-    // House visual language: hairline rows inside bordered cards (the
-    // ChangedFiles.module.css:2 recipe), bili pill tabs, compact right-aligned
-    // number inputs (General's font-size pattern), icon-card position pickers
-    // (General's Appearance pattern). Host tokens only — no feature stylesheet.
+    // House visual language: bili pill tabs, bordered cards, compact right-aligned
+    // number inputs, icon-card position pickers — plus the 1.0.12 presentation the
+    // maintainer asked to keep (m02776): the 56×35 SVG arts, ⓘ tooltips, and the
+    // two-column grid. The feature stylesheet is scoped to [data-arya-settings] and
+    // defines NO generic element rules, so kit Button/Switch/Menu keep their own
+    // styling; the arts and tokens are our own 1.0.12 code (licence-safe).
     const hair = '0.5px solid var(--dsw-alias-border-l2,#8885)';
     const rowStyle = { display: 'flex', gap: '14px', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', flexWrap: 'wrap' };
     const mainStyle = { flex: '1 1 260px', minWidth: '220px' };
@@ -337,36 +339,113 @@ window.__ModuleLoader__.load({
     const monoStyle = { fontSize: '12px', fontFamily: 'var(--ds-font-family-code,ui-monospace,monospace)', color: 'var(--dsw-alias-label-secondary,#61666b)', overflowWrap: 'anywhere', textAlign: 'right' };
     const cardStyle = { border: hair, borderRadius: 'var(--dsw-radius-lg,12px)', background: 'var(--dsw-alias-bg-layer-1,transparent)', marginBottom: '14px', overflow: 'hidden' };
     const tabStyle = (active) => ({ padding: '5px 12px', borderRadius: 'var(--dsw-radius-md,8px)', border: '0.5px solid var(--dsw-alias-border-l3,#9998)', background: active ? 'var(--dsw-alias-bg-layer-3,#eee)' : 'transparent', color: 'inherit', font: 'inherit', fontSize: '13px', cursor: 'pointer' });
-    const row = (key, titleKey, descKey, control) => h('div', { key, style: rowStyle },
-      h('div', { style: mainStyle }, h('span', { style: titleStyle }, tr(titleKey)), descKey ? h('p', { style: descStyle }, tr(descKey)) : null),
-      control);
-    // A house card: bold internal title with an optional right slot, then
-    // hairline-separated rows padded to the border — the first-party card shape.
-    const card = (key, titleKey, rows, end) => h('div', { key, style: cardStyle },
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px 10px' } },
+    // Scoped presentation CSS: the 1.0.12 token map and art strokes, plus the
+    // two-column grid the cards now lay their rows out on.
+    const artCss = `
+      [data-arya-settings]{--arya-sunken:var(--dsw-alias-bg-module-platform,color-mix(in srgb,CanvasText 4%,Canvas));--arya-control:var(--dsw-alias-bg-layer-1,Canvas);--arya-fg:var(--dsw-alias-label-primary,CanvasText);--arya-muted:var(--dsw-alias-label-secondary,#61666b);--arya-subtle:var(--dsw-alias-label-tertiary,#81858c);--arya-line:var(--dsw-alias-border-l2,rgba(128,128,128,.2));--arya-line-strong:var(--dsw-alias-border-l3,rgba(128,128,128,.3));--arya-hover:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.1));--arya-accent:var(--dsw-alias-state-business-primary,#4176e6)}
+      [data-arya-settings] .arya-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px 22px;padding:2px 14px 14px}
+      [data-arya-settings] .arya-span{grid-column:1/-1}
+      [data-arya-settings] .arya-item{display:flex;gap:10px;align-items:flex-start;min-width:0}
+      [data-arya-settings] .arya-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding-top:1px}
+      [data-arya-settings] .arya-item-title{font-size:13.5px;font-weight:600;line-height:1.5}
+      [data-arya-settings] .arya-nowrap{white-space:nowrap}
+      [data-arya-settings] .arya-art{flex:none;display:flex;align-items:center;justify-content:center;min-width:56px;padding-top:2px}
+      [data-arya-settings] .arya-art-icon{min-width:20px;color:var(--arya-muted);padding-top:4px}
+      [data-arya-settings] .arya-art svg{width:56px;height:35px}
+      [data-arya-settings] .arya-art svg *{fill:none;stroke:var(--arya-muted);stroke-width:1.4}
+      [data-arya-settings] .arya-art svg .a-acc{stroke:var(--arya-accent);fill:color-mix(in srgb,var(--arya-accent) 16%,transparent)}
+      [data-arya-settings] .arya-art svg .a-glow{stroke:var(--arya-accent);opacity:.55}
+      [data-arya-settings] .arya-art svg .a-ink{stroke:var(--arya-subtle);opacity:.6}
+      [data-arya-settings] .arya-art svg .a-ink2{stroke:var(--arya-subtle);opacity:.35}
+      [data-arya-settings] .arya-art svg .a-win{fill:var(--arya-control)}
+      [data-arya-settings] .arya-art svg .a-bar{fill:var(--arya-sunken);stroke:none}
+      [data-arya-settings] .arya-art svg .a-pill{fill:var(--arya-control)}
+      [data-arya-settings] .arya-art svg .a-dot{fill:var(--arya-accent);stroke:none}
+      [data-arya-settings] .arya-art svg .a-text{fill:var(--arya-subtle);stroke:none}
+      [data-arya-settings] .arya-art svg .a-key{fill:var(--arya-sunken)}
+      [data-arya-settings] .arya-art svg .a-cap{fill:var(--arya-muted);stroke:none;font-size:9px}
+      [data-arya-settings] .arya-art svg .a-tag{fill:var(--arya-fg);stroke:none;font-size:7px}
+      [data-arya-settings] .arya-info{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:8px;border:0;background:transparent;color:var(--arya-subtle);cursor:help;vertical-align:baseline;margin-left:3px;padding:0}
+      [data-arya-settings] .arya-info:hover,[data-arya-settings] .arya-info:focus-visible{color:var(--arya-fg);background:var(--arya-hover);outline:none}
+      [data-arya-settings] .arya-info svg{width:13px;height:13px;overflow:visible}
+      [data-arya-settings] .arya-info svg *{fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round}
+      [data-arya-settings] .arya-field{flex-direction:column;gap:5px}
+      [data-arya-settings] .arya-field .arya-item-main{width:100%;gap:4px}
+      [data-arya-settings] .arya-input{background:var(--arya-control);color:var(--arya-fg);border:.5px solid var(--arya-line-strong);border-radius:var(--dsw-radius-sm,8px);padding:5px 8px;font:inherit;font-size:13px;min-width:0;width:100%}
+      [data-arya-settings] .arya-caption{font-size:12px;color:var(--arya-subtle)}
+      @media (max-width:640px){[data-arya-settings] .arya-grid{grid-template-columns:minmax(0,1fr)}}
+    `;
+    // The 1.0.12 illustration set, verbatim (git c622286 client.js:237-254 — our
+    // own code): each art mirrors the setting's current state.
+    const drawing = (...children) => h('svg', { viewBox: '0 0 112 70', 'aria-hidden': true, focusable: false }, ...children);
+    const box = (className, x, y, width, height, rx = 0) => h('rect', { className, x, y, width, height, rx });
+    const arrow = (x, y) => h('path', { className: 'a-ptr', d: `M${x} ${y}v15.5l3.8-3.6 2.7 6.1 2.6-1.1-2.7-6h5.4z` });
+    const monitor = () => [box('a-desk', 9, 5, 94, 52, 4), h('path', { className: 'a-bar', d: 'M9.4 50h93.2v3.6a3.4 3.4 0 0 1-3.4 3.4H12.8a3.4 3.4 0 0 1-3.4-3.4z' }), box('a-ink', 54.5, 52, 3, 3, .8), h('path', { className: 'a-ink', d: 'M50 57h12l1.5 6h-15z' }), box('a-ink', 41, 63, 30, 2, 1)];
+    const banner = (y) => [box('a-pill', 33, y, 46, 9, 4.5), h('circle', { className: 'a-dot', cx: 38.5, cy: y + 4.5, r: 1.8 }), box('a-text', 42.5, y + 3.55, 23, 1.9, .95), box('a-key', 68, y + 2, 8, 5, 1.2)];
+    const arts = {
+      indicator: (on, bottom) => drawing(...monitor(), box('a-win', 22, 15, 48, 27, 2.5), h('path', { className: 'a-bar', d: 'M22 17.5a2.5 2.5 0 0 1 2.5-2.5h43a2.5 2.5 0 0 1 2.5 2.5v2.5H22z' }), box('a-ink', 26, 25, 30, 2.2, 1.1), box('a-ink', 26, 30, 22, 2.2, 1.1), box('a-frame', 22, 15, 48, 27, 2.5),
+        ...(on ? [box('a-glow a-soft', 12, 8, 88, 46, 2.5), box('a-glow', 9.8, 5.8, 92.4, 50.4, 3.6), ...banner(bottom ? 40 : 9.5)] : [])),
+      cursor: (on) => drawing(box('a-ink', 14, 13, 42, 3, 1.5), box('a-ink', 14, 20, 30, 3, 1.5), box('a-ink', 14, 27, 36, 3, 1.5), arrow(48, 25),
+        ...(on ? [box('a-acc', 60, 44, 26, 11, 5.5), h('text', { className: 'a-tag', x: 73, y: 51.9, textAnchor: 'middle' }, 'DSH')] : [])),
+      esc: () => drawing(box('a-ink2', 33, 19, 46, 34, 7), box('a-win', 33, 16, 46, 34, 7), box('a-frame', 33, 16, 46, 34, 7), h('text', { className: 'a-cap', x: 56, y: 37.2, textAnchor: 'middle' }, 'Esc')),
+      progress: (on) => drawing(...monitor(), box('a-win', 22, 15, 48, 27, 2.5), box('a-ink', 26, 25, 30, 2.2, 1.1), box('a-frame', 22, 15, 48, 27, 2.5),
+        ...(on ? [box('a-acc', 58, 12, 40, 26, 3), box('a-text', 62, 17, 26, 2, 1), box('a-text', 62, 22, 30, 2, 1), box('a-text', 62, 27, 20, 2, 1)] : [])),
+      keyboard: (on) => drawing(box('a-win', 14, 10, 84, 34, 4), box('a-ink', 20, 16, 72, 2.4, 1.2), box('a-ink', 20, 22, 60, 2.4, 1.2), box('a-frame', 14, 10, 84, 34, 4),
+        box(on ? 'a-acc' : 'a-ink2', 30, 50, 52, 12, 3), ...(on ? [box('a-text', 34, 53, 6, 2, 1), box('a-text', 42, 53, 6, 2, 1), box('a-text', 50, 53, 6, 2, 1), box('a-text', 58, 53, 6, 2, 1), box('a-text', 66, 53, 6, 2, 1)] : []), arrow(84, 46)),
+      lock: (on) => drawing(box('a-acc', 40, 26, 32, 24, 4), h('path', { className: on ? 'a-acc' : 'a-ink2', d: 'M47 26v-6a9 9 0 0 1 18 0v6' }), box('a-text', 47, 36, 18, 2.4, 1.2)),
+      shield: (on) => drawing(h('path', { className: on ? 'a-acc' : 'a-ink2', d: 'M56 8l30 10v20c0 18-12 26-30 32-18-6-30-14-30-32V18z' }), h('path', { className: 'a-text', d: 'M44 38l9 9 17-18' })),
+    };
+    // The ⓘ the old page had, on the kit's own Tooltip (portal:true — cards clip).
+    const infoBtn = (hintKey) => {
+      const text = tr(hintKey);
+      return h(P.Tooltip, { label: text, portal: true, openOnClick: true, maxWidth: 320 },
+        h('button', { type: 'button', className: 'arya-info', 'aria-label': text },
+          h('svg', { viewBox: '0 0 16 16', 'aria-hidden': true, focusable: false }, h('circle', { cx: 8, cy: 8, r: 6.4 }), h('path', { d: 'M8 7.3v3.9M8 4.9v.2' }))));
+    };
+    // Title with the ⓘ kept glued to the last word (the 1.0.12 nowrap trick,
+    // CJK-aware) — hints live in tooltips, not in paragraphs under every label.
+    const titleSpan = (titleKey, hintKey, props) => {
+      const text = tr(titleKey);
+      const cut = /[\u2e80-\u9fff\uff00-\uffef]$/.test(text) ? text.length - 2 : text.lastIndexOf(' ') + 1;
+      return h(props && props.htmlFor ? 'label' : 'span', { className: 'arya-item-title', ...props },
+        text.slice(0, cut), h('span', { className: 'arya-nowrap' }, text.slice(cut), hintKey && hasKey(hintKey) ? infoBtn(hintKey) : null));
+    };
+    const row = (key, opts) => h('div', { key, className: 'arya-item' + (opts.span ? ' arya-span' : '') },
+      opts.art ? h('div', { className: 'arya-art', 'aria-hidden': 'true' }, opts.art)
+        : opts.icon ? h('div', { className: 'arya-art arya-art-icon', 'aria-hidden': 'true' }, h(opts.icon, { size: 16 })) : null,
+      h('div', { className: 'arya-item-main' },
+        titleSpan(opts.titleKey, opts.hintKey, opts.htmlFor ? { htmlFor: opts.htmlFor } : undefined),
+        opts.caption ? h('span', { className: 'arya-caption' }, opts.caption) : null),
+      opts.control ? h('div', { style: controlsStyle }, opts.control) : null);
+    // A house card: kit icon + bold title + optional right slot, rows laid out on
+    // the revived two-column grid (wide rows carry .arya-span).
+    const card = (key, titleKey, rows, end, Icon) => h('div', { key, style: cardStyle },
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '12px 14px 10px' } },
+        Icon ? h(Icon, { size: 15 }) : null,
         h('span', { style: { fontSize: '14px', fontWeight: 600 } }, tr(titleKey)),
         end ? h('span', { style: { marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' } }, end) : null),
-      ...rows.filter(Boolean).map((child, index) => h('div', { style: { padding: '0 14px', borderTop: index ? hair : 'none' } }, child)));
-    const valueProps = (name, model, shell, extra, idp) => {
-      const st = model.field(name), m = meta[name] || {};
-      const hintKey = m.hint !== undefined ? m.hint : hasKey(name + 'Hint') ? name + 'Hint' : undefined;
-      return {
-        id: idp + '-' + name,
-        label: tr(m.label || name),
-        hint: hintKey ? tr(hintKey) : undefined,
-        text: st.text,
-        overridden: st.overridden,
-        invalid: st.invalid,
-        overriddenLabel: tr('overridden'),
-        resetLabel: tr('reset'),
-        invalidLabel: tr(invalidKeys[name] || 'invalidValue'),
-        disabled: !shell.writable,
-        onEdit: (text) => model.edit(name, text),
-        onReset: () => model.resetField(name),
-        ...(m.numeric ? { numeric: true } : {}),
-        ...(m.placeholder ? { placeholder: m.placeholder } : {}),
-        ...(extra || {}),
-      };
+      h('div', { className: 'arya-grid' }, ...rows.filter(Boolean)));
+    // Stacked label+input pair (the 1.0.12 .arya-field): title + ⓘ, the model's
+    // Overridden/Reset/invalid affordances inline, full-width input below.
+    const fieldRow = (name, model, shell, extra, opts) => {
+      const st = model.field(name), m = meta[name] || {}, idp = (opts && opts.idp) || 'arya';
+      const hintKey = m.hint !== undefined ? m.hint : hasKey(name + 'Hint') ? name + 'Hint' : null;
+      return h('div', { key: name, 'data-arya-text': name, className: 'arya-item arya-field' + (opts && opts.span ? ' arya-span' : '') },
+        h('div', { className: 'arya-item-main' },
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+            titleSpan(m.label || name, hintKey, { htmlFor: idp + '-' + name }),
+            st.overridden ? h(React.Fragment, null,
+              h(P.Tag, { tone: 'quiet' }, tr('overridden')),
+              h(P.Button, { variant: 'ghost', size: 'sm', disabled: !shell.writable, onClick: () => model.resetField(name) }, tr('reset'))) : null,
+            st.invalid ? h(P.Tag, { tone: 'danger' }, tr(invalidKeys[name] || 'invalidValue')) : null),
+          h('input', {
+            type: 'text', id: idp + '-' + name, className: 'arya-input', value: st.text, disabled: !shell.writable,
+            'aria-invalid': st.invalid ? 'true' : 'false', 'aria-label': tr(m.label || name),
+            ...(m.placeholder ? { placeholder: m.placeholder } : {}),
+            ...(extra || {}),
+            onChange: (event) => model.edit(name, event.target.value),
+          }),
+          ...((opts && opts.after) || [])));
     };
     // Native folder dialog — the one OS picker the host exposes
     // (ctx.remote.directoryPicker.pick(); packages/client/ui-workspace/src/client/
@@ -391,29 +470,27 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false);
       const st = model.field(name);
       const current = items.find((item) => item.id === st.text);
-      return row(name, titleKey, hintKey,
-        h('div', { style: controlsStyle },
+      return row(name, { titleKey, hintKey,
+        control: h('div', { style: controlsStyle },
           st.invalid ? h(P.Tag, { tone: 'danger' }, tr(invalidKeys[name] || 'invalidValue')) : null,
           h(P.Menu, { open, onClose: () => setOpen(false), selectedId: st.text, align: 'end', side: 'bottom', portal: true, items,
             onSelect: (id) => { model.edit(name, id); setOpen(false); },
-            anchor: h(P.Button, { variant: 'outline', size: 'sm', disabled: !shell.writable, onClick: () => setOpen((v) => !v) }, current && current.short !== undefined ? current.short : st.text) })));
+            anchor: h(P.Button, { variant: 'outline', size: 'sm', disabled: !shell.writable, onClick: () => setOpen((v) => !v) }, current && current.short !== undefined ? current.short : st.text) })) });
     }
+    // Path fields ride the stacked fieldRow (title + ⓘ + full-width input) with
+    // the native dialog button underneath — the two-step file flow is unchanged.
     function FolderField({ name, model, shell, picker, idp }) {
-      return h('div', { key: name, style: { padding: '2px 0 9px' } },
-        h(P.SettingsValueField, valueProps(name, model, shell, undefined, idp)),
-        picker ? h('div', { style: { ...controlsStyle, marginTop: '6px' } },
-          h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
-            onClick: () => { pickFolder(picker).then((folder) => { if (folder) model.edit(name, folder); }).catch(() => {}); } }, tr('browse'))) : null);
+      return fieldRow(name, model, shell, undefined, { idp, span: true, after: picker ? [h('div', { key: 'browse', style: controlsStyle },
+        h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
+          onClick: () => { pickFolder(picker).then((folder) => { if (folder) model.edit(name, folder); }).catch(() => {}); } }, tr('browse')))] : [] });
     }
     function FileField({ name, model, shell, picker, accept, idp }) {
       const [open, setOpen] = React.useState(false), [files, setFiles] = React.useState([]);
-      return h('div', { key: name, style: { padding: '2px 0 9px' } },
-        h(P.SettingsValueField, valueProps(name, model, shell, undefined, idp)),
-        picker ? h('div', { style: { ...controlsStyle, marginTop: '6px' } },
-          h(P.Menu, { open, onClose: () => setOpen(false), align: 'start', side: 'bottom', portal: true, items: files,
-            onSelect: (id) => { if (id !== '__none') model.edit(name, id); setOpen(false); },
-            anchor: h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
-              onClick: () => listFiles(picker, accept, setFiles, setOpen) }, tr('chooseFile')) })) : null);
+      return fieldRow(name, model, shell, undefined, { idp, span: true, after: picker ? [h('div', { key: 'choose', style: controlsStyle },
+        h(P.Menu, { open, onClose: () => setOpen(false), align: 'start', side: 'bottom', portal: true, items: files,
+          onSelect: (id) => { if (id !== '__none') model.edit(name, id); setOpen(false); },
+          anchor: h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
+            onClick: () => listFiles(picker, accept, setFiles, setOpen) }, tr('chooseFile')) }))] : [] });
     }
     // browserExecutablePath: a menu of the browsers the host status route found on
     // this machine (index.js detectedBrowsers), with the two-step file picker as the
@@ -425,17 +502,15 @@ window.__ModuleLoader__.load({
       const detectedItems = (browsers || []).length
         ? browsers.map((entry) => ({ id: entry.path, label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '7px', maxWidth: '380px' } }, h(P.FileTypeIcon, { path: entry.path, size: 16 }), h('span', null, entry.name), h(P.PathLabel, { path: entry.path })) }))
         : [{ id: '__none', label: tr('noDetectedBrowsers'), disabled: true }];
-      return h('div', { key: name, style: { padding: '2px 0 9px' } },
-        h(P.SettingsValueField, valueProps(name, model, shell, undefined, idp)),
-        h('div', { style: { ...controlsStyle, marginTop: '6px' } },
-          h(P.Menu, { open: detected, onClose: () => setDetected(false), align: 'start', side: 'bottom', portal: true, items: detectedItems,
-            selectedId: (browsers || []).some((entry) => entry.path === current) ? current : undefined,
-            onSelect: (id) => { model.edit(name, id); setDetected(false); },
-            anchor: h(P.Button, { variant: 'outline', size: 'sm', disabled: !shell.writable, onClick: () => setDetected((v) => !v) } , tr('detectedBrowsers')) }),
-          h(P.Menu, { open, onClose: () => setOpen(false), align: 'start', side: 'bottom', portal: true, items: files,
-            onSelect: (id) => { if (id !== '__none') model.edit(name, id); setOpen(false); },
-            anchor: h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
-              onClick: () => listFiles(picker, /\.(?:exe)$/i, setFiles, setOpen) }, tr('chooseFile')) })));
+      return fieldRow(name, model, shell, undefined, { idp, span: true, after: [h('div', { key: 'pick', style: controlsStyle },
+        h(P.Menu, { open: detected, onClose: () => setDetected(false), align: 'start', side: 'bottom', portal: true, items: detectedItems,
+          selectedId: (browsers || []).some((entry) => entry.path === current) ? current : undefined,
+          onSelect: (id) => { model.edit(name, id); setDetected(false); },
+          anchor: h(P.Button, { variant: 'outline', size: 'sm', disabled: !shell.writable, onClick: () => setDetected((v) => !v) } , tr('detectedBrowsers')) }),
+        h(P.Menu, { open, onClose: () => setOpen(false), align: 'start', side: 'bottom', portal: true, items: files,
+          onSelect: (id) => { if (id !== '__none') model.edit(name, id); setOpen(false); },
+          anchor: h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
+            onClick: () => listFiles(picker, /\.(?:exe)$/i, setFiles, setOpen) }, tr('chooseFile')) })) ] });
     }
     function ShortcutRow({ name, model, shell }) {
       const [recording, setRecording] = React.useState(false), [note, setNote] = React.useState('');
@@ -458,11 +533,10 @@ window.__ModuleLoader__.load({
         window.addEventListener('blur', cancel);
         return () => { clearTimeout(timer); window.removeEventListener('keydown', keydown, true); window.removeEventListener('blur', cancel); };
       }, [recording, shell.writable]);
-      return h('div', { key: name, 'data-arya-shortcut': true, style: rowStyle },
-        h('div', { style: mainStyle },
-          h('span', { style: titleStyle }, tr(m.label || name)),
-          m.hint ? h('p', { style: descStyle }, tr(m.hint)) : null,
-          st.invalid ? h('p', { style: { ...descStyle, marginTop: '4px' } }, h(P.Tag, { tone: 'danger' }, tr(invalidKeys[name] || 'invalidChord'))) : null),
+      return h('div', { key: name, 'data-arya-shortcut': true, className: 'arya-item arya-span' },
+        h('div', { className: 'arya-item-main' },
+          titleSpan(m.label || name, m.hint),
+          st.invalid ? h('span', { style: { marginTop: '4px' } }, h(P.Tag, { tone: 'danger' }, tr(invalidKeys[name] || 'invalidChord'))) : null),
         h('div', { style: controlsStyle },
           h(P.ShortcutKeys, { keys: st.text ? st.text.split('+') : ['Esc'] }),
           !st.text ? h('span', { style: descStyle }, tr('noShortcut')) : null,
@@ -542,21 +616,21 @@ window.__ModuleLoader__.load({
       };
       const positionCustom = model.field('progressOverlayPosition').text === 'custom';
       const browsers = status?.engines?.browsers || [];
-      const switchRow = (name, titleKey, descKey) => row(name, titleKey, descKey,
-        h(P.Switch, { checked: model.field(name).text === 'true', label: tr(titleKey), disabled: !writable, onChange: (next) => model.edit(name, String(next)) }));
-      const segRow = (name, titleKey, options, descKey) => row(name, titleKey, descKey === undefined ? (hasKey(name + 'Hint') ? name + 'Hint' : null) : descKey,
-        h(P.SegmentedControl, { id: idPrefix + '-' + name, label: tr(titleKey), value: model.field(name).text, options, disabled: !writable, onChange: (next) => model.edit(name, next) }));
-      const valueRow = (name, extra) => h(P.SettingsValueField, { key: name, ...valueProps(name, model, shell, extra, idPrefix) });
-      // Compact right-aligned number rows (General's font-size pattern): the model
-      // still stages, validates and fences every edit.
+      const switchRow = (name, titleKey, hintKey, opts) => row(name, { ...opts, titleKey, hintKey,
+        control: h(P.Switch, { checked: model.field(name).text === 'true', label: tr(titleKey), disabled: !writable, onChange: (next) => model.edit(name, String(next)) }) });
+      const segRow = (name, titleKey, options, descKey) => row(name, { span: true, titleKey, hintKey: descKey === undefined ? (hasKey(name + 'Hint') ? name + 'Hint' : null) : descKey,
+        control: h(P.SegmentedControl, { id: idPrefix + '-' + name, label: tr(titleKey), value: model.field(name).text, options, disabled: !writable, onChange: (next) => model.edit(name, next) }) });
+      const valueRow = (name, extra) => fieldRow(name, model, shell, extra, { idp: idPrefix });
+      // Compact number rows: the 1.0.12 title+ⓘ on the left, the staged input on
+      // the right (General's font-size pattern) — the model still stages, validates
+      // and fences every edit.
       const numRow = (name, disabledExtra) => {
         const st = model.field(name), m = meta[name] || {};
         const hintKey = m.hint !== undefined ? m.hint : hasKey(name + 'Hint') ? name + 'Hint' : null;
-        return h('div', { key: name, 'data-arya-num': name, style: rowStyle },
-          h('div', { style: mainStyle },
-            h('span', { style: titleStyle }, tr(m.label || name)),
-            hintKey ? h('p', { style: descStyle }, tr(hintKey)) : null,
-            st.invalid ? h('p', { style: { ...descStyle, marginTop: '4px' } }, tr(invalidKeys[name] || 'invalidRange')) : null),
+        return h('div', { key: name, 'data-arya-num': name, className: 'arya-item' },
+          h('div', { className: 'arya-item-main' },
+            titleSpan(m.label || name, hintKey, { htmlFor: idPrefix + '-' + name }),
+            st.invalid ? h('span', { className: 'arya-caption' }, tr(invalidKeys[name] || 'invalidRange')) : null),
           h('div', { style: controlsStyle },
             st.overridden ? h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
               h(P.Tag, { tone: 'quiet' }, tr('overridden')),
@@ -571,8 +645,8 @@ window.__ModuleLoader__.load({
       // Icon-card position pickers (General's Appearance pattern).
       const iconCardsRow = (name, titleKey, descKey, options) => {
         const st = model.field(name);
-        return h('div', { key: name, 'data-arya-iconcards': name, style: rowStyle },
-          h('div', { style: mainStyle }, h('span', { style: titleStyle }, tr(titleKey)), descKey ? h('p', { style: descStyle }, tr(descKey)) : null),
+        return h('div', { key: name, 'data-arya-iconcards': name, className: 'arya-item arya-span' },
+          h('div', { className: 'arya-item-main' }, titleSpan(titleKey, descKey)),
           h('div', { style: { ...controlsStyle, gap: '6px' } }, options.map((option) => {
             const active = st.text === option.value;
             return h('button', {
@@ -587,6 +661,7 @@ window.__ModuleLoader__.load({
       const tabs = [['desktop', 'desktopTitle'], ['indicator', 'indicatorTitle'], ['progress', 'progressTitle'], ['browser', 'browserTitle'], ['status', 'statusTitle']];
       const [tab, setTab] = React.useState('desktop');
       return h(as, { 'data-arya-settings': 'true' },
+        h('style', null, artCss),
         h(P.SettingsForm, {
           labels: { unavailable: tr('unavailable'), readOnly: tr('readOnly'), saveFailed: tr('failed'), save: tr('save'), saving: tr('saveSaving') },
           state: shell, onSave: () => model.save(), onDiscard: () => model.discard(),
@@ -601,39 +676,39 @@ window.__ModuleLoader__.load({
             tabs.map(([id, titleKey]) => h('button', { key: id, type: 'button', role: 'tab', 'data-arya-tab': id, 'aria-selected': tab === id ? 'true' : 'false', style: tabStyle(tab === id), onClick: () => setTab(id) }, tr(titleKey)))),
           tab === 'desktop' ? h('div', { role: 'tabpanel', 'data-arya-desktop-settings': true },
             card('engine-session', 'cardEngineSession', [
-              switchRow('headedDefault', 'headedDefault', 'headedDefaultHint'),
-              switchRow('overlayDefault', 'overlayDefault', 'overlayDefaultHint'),
-              switchRow('driverLockEnabled', 'driverLock', 'driverLockHint'),
+              switchRow('headedDefault', 'headedDefault', 'headedDefaultHint', { art: arts.keyboard(model.field('headedDefault').text === 'true') }),
+              switchRow('overlayDefault', 'overlayDefault', 'overlayDefaultHint', { art: arts.cursor(model.field('overlayDefault').text === 'true') }),
+              switchRow('driverLockEnabled', 'driverLock', 'driverLockHint', { art: arts.shield(model.field('driverLockEnabled').text === 'true') }),
               segRow('toolPreset', 'toolPreset', [{ value: 'lite', label: tr('toolPresetLite') }, { value: 'lazy', label: tr('toolPresetLazy') }]),
-            ]),
+            ], null, P.IconSettingsOutlineRegular),
             card('call-limits', 'cardCallLimits', [
               numRow('engineCallTimeoutMs'),
               numRow('leaseRetryBaseMs'),
               h(FolderField, { name: 'screenshotDir', model, shell, picker, idp: idPrefix }),
-            ]),
+            ], null, P.IconGaugeOutlineRegular),
             // The stop contract: Esc is always live; the custom chord is recorded,
             // never typed. Resume lives in the session card of Status.
             card('stop-resume', 'cardStopResume', [
-              row('esc', 'escTitle', 'stopHint', h(P.Tag, { tone: 'neutral' }, tr('escAlways'))),
+              row('esc', { art: arts.esc(), titleKey: 'escTitle', hintKey: 'stopHint', control: h(P.Tag, { tone: 'neutral' }, tr('escAlways')) }),
               h(ShortcutRow, { name: 'stopShortcut', model, shell }),
-            ])) : null,
+            ], null, P.IconStopFillRegular)) : null,
           tab === 'indicator' ? h('div', { role: 'tabpanel', 'data-arya-indicator-settings': true },
             card('indicator', 'cardIndicator', [
-              switchRow('indicatorEnabled', 'indicator', 'indicatorHint'),
-              switchRow('cursorIndicatorEnabled', 'cursorIndicator', 'cursorIndicatorHint'),
-              switchRow('remoteIndicatorVisible', 'remoteVisible', 'remoteVisibleHint'),
+              switchRow('indicatorEnabled', 'indicator', 'indicatorHint', { art: arts.indicator(model.field('indicatorEnabled').text === 'true', model.field('indicatorPosition').text === 'bottom') }),
+              switchRow('cursorIndicatorEnabled', 'cursorIndicator', 'cursorIndicatorHint', { art: arts.cursor(model.field('cursorIndicatorEnabled').text === 'true') }),
+              switchRow('remoteIndicatorVisible', 'remoteVisible', 'remoteVisibleHint', { icon: P.IconShareOutlineRegular }),
               iconCardsRow('indicatorPosition', 'position', null, [{ value: 'top', glyph: '↑', label: tr('top') }, { value: 'bottom', glyph: '↓', label: tr('bottom') }]),
               numRow('indicatorIdleMs'),
               valueRow('indicatorText'),
               valueRow('pointerLabel'),
-            ], h(P.Button, { variant: 'outline', size: 'sm', disabled: !writable, onClick: () => runAction({ previewToken: Date.now() }, 'previewed') }, tr('preview')))) : null,
+            ], h(P.Button, { variant: 'outline', size: 'sm', disabled: !writable, onClick: () => runAction({ previewToken: Date.now() }, 'previewed') }, tr('preview')), P.IconPersonalizationOutlineRegular)) : null,
           tab === 'progress' ? h('div', { role: 'tabpanel', 'data-arya-progress-settings': true },
             card('overlay', 'cardOverlay', [
-              switchRow('progressOverlayEnabled', 'progressOverlay', 'progressOverlayHint'),
-              switchRow('progressOverlayLocked', 'progressLocked', 'progressLockedHint'),
+              switchRow('progressOverlayEnabled', 'progressOverlay', 'progressOverlayHint', { art: arts.progress(model.field('progressOverlayEnabled').text === 'true') }),
+              switchRow('progressOverlayLocked', 'progressLocked', 'progressLockedHint', { art: arts.lock(model.field('progressOverlayLocked').text === 'true') }),
               segRow('progressOverlayMode', 'progressMode', [{ value: 'summary', label: tr('progressModeSummary') }, { value: 'source', label: tr('progressModeSource') }], 'progressModeHint'),
               h(ShortcutRow, { name: 'progressLockShortcut', model, shell }),
-            ], h(P.Button, { variant: 'outline', size: 'sm', 'data-arya-open-progress': true, disabled: !writable, onClick: () => runAction({ progressOverlayEnabled: true, progressPreviewToken: Date.now() }, 'previewed') }, tr('openProgress'))),
+            ], h(P.Button, { variant: 'outline', size: 'sm', 'data-arya-open-progress': true, disabled: !writable, onClick: () => runAction({ progressOverlayEnabled: true, progressPreviewToken: Date.now() }, 'previewed') }, tr('openProgress')), P.IconFullscreenOutlineRegular),
             card('geometry', 'cardGeometry', [
               numRow('progressOverlayOpacity'),
               numRow('progressOverlayWidth'),
@@ -646,32 +721,32 @@ window.__ModuleLoader__.load({
                 { value: 'custom', glyph: '⌖', label: tr('progress_custom') }]),
               numRow('progressOverlayX', !positionCustom),
               numRow('progressOverlayY', !positionCustom),
-            ])) : null,
+            ], null, P.IconSlidersTwoOutlineRegular)) : null,
           tab === 'browser' ? h('div', { role: 'tabpanel', 'data-arya-browser-settings': true },
             card('launch', 'cardLaunch', [
-              switchRow('browserHeaded', 'browserHeaded', 'browserHeadedHint'),
+              switchRow('browserHeaded', 'browserHeaded', 'browserHeadedHint', { art: arts.cursor(model.field('browserHeaded').text === 'true') }),
               h(ExecutableField, { name: 'browserExecutablePath', model, shell, picker, browsers, idp: idPrefix }),
               h(FolderField, { name: 'browserProfile', model, shell, picker, idp: idPrefix }),
               valueRow('browserSession'),
               valueRow('browserCdp'),
               h(FileField, { name: 'browserStateFile', model, shell, picker, accept: /\.json$/i, idp: idPrefix }),
-            ]),
+            ], null, P.IconGlobeOutlineRegular),
             card('network-policy', 'cardNetworkPolicy', [
               valueRow('browserAllowedDomains'),
               valueRow('browserNamespace'),
               valueRow('browserIdleTimeout'),
               h(FileField, { name: 'browserCaCert', model, shell, picker, accept: /\.(?:pem|crt)$/i, idp: idPrefix }),
-              switchRow('browserUseSystemCa', 'browserUseSystemCa', 'browserUseSystemCaHint'),
+              switchRow('browserUseSystemCa', 'browserUseSystemCa', 'browserUseSystemCaHint', { icon: P.IconShieldOutlineRegular }),
               numRow('browserDefaultTimeoutMs'),
               valueRow('browserConfirmActions'),
-              h('p', { style: { ...descStyle, padding: '4px 0 10px' } }, tr('browserRestart')),
-            ]),
+              h('p', { className: 'arya-span', style: { ...descStyle, padding: '4px 0 10px' } }, tr('browserRestart')),
+            ], null, P.IconShieldOutlineRegular),
             card('tool-surface', 'cardToolSurface', [
               h(MenuField, { name: 'browserTools', model, shell, titleKey: 'browserTools', hintKey: 'browserToolsHint', items: [
                 ['core', 33], ['network', 9], ['state', 27], ['debug', 40], ['tabs', 13], ['react', 8], ['mobile', 15], ['webmcp', 4], ['all', 160],
               ].map(([id, count]) => ({ id, short: id + ' · ' + count, label: id + ' · ' + count + ' ' + tr('toolsUnit') })) }),
               segRow('browserToolFlags', 'browserFlags', [{ value: 'strip', label: tr('browserFlagsStrip') }, { value: 'lean', label: tr('browserFlagsLean') }, { value: 'off', label: tr('browserFlagsOff') }], 'browserFlagsHint'),
-            ])) : null,
+            ], null, P.IconChecklistOutlineRegular)) : null,
           tab === 'status' ? h('div', { role: 'tabpanel', 'data-arya-status-tab': true },
             h('div', { style: { display: 'flex', justifyContent: 'flex-end', margin: '0 0 10px' } },
               h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconRefreshOutlineRegular, { size: 14 }), onClick: load }, tr('statusRefresh'))),
