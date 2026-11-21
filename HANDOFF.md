@@ -522,3 +522,227 @@ closed both tabs it created through the window's own Close Tab affordance.
   Issue #2: bilingual thank-you + confirmation of his diagnosis + the 1.0.3-1.0.11 blast
   radius + the measured A/B posted (comment 7024658122). The issue is left **OPEN** by the
   maintainer's instruction — close only with explicit approval or after 5 days (2026-11-24).
+
+## Held plan — 1.0.13 engine update + settings UI (2026-11-19)
+
+The plan below is drafted, reviewed and **HELD**. Implementation starts only when issue #2
+closes — explicit approval, or on/after 2026-11-24 (the date in comment 7024658122). Until
+then: no dependency bump, no code edits, no version bump, no release. The repo stays at
+`42f13d2` with a clean tree. This section is the plan as reviewed, plus the measurements it
+rests on, so it can be executed cold without re-deriving anything.
+
+### Why the engine bump is not a version bump
+
+agent-browser 0.43.0 no longer ships its native beside the shim: its `bin/` holds only
+`agent-browser.js` (2,707 B), and the executable arrives through `optionalDependencies`
+(`@agent-browser/cli-win32-x64-msvc` → `bin/agent-browser.exe`, 20,043,776 B). So the 1.0.12
+rule `join(dirname(SHIM), 'agent-browser-win32-x64.exe')` (`mcp/browser-launcher.mjs:50-63`)
+finds nothing, the lane falls back to the npm shim, and **issue #2's console window comes
+back**. Measured under pnpm (harnesses in `KonnectSuite/.tmp-verify/engines`): the 1.0.12
+beside-the-shim rule → NOT FOUND; a plugin-anchored
+`require.resolve('@agent-browser/cli-win32-x64-msvc/package.json')` → UNRESOLVABLE
+(MODULE_NOT_FOUND); only an **engine-anchored** `createRequire` at the engine's own
+`package.json` resolves it. agent-desktop 1.3.1 is the security bump (rustix 1.1.6 for
+RUSTSEC-2026-0486, agent-desktop#670).
+
+### Part A — engine update
+
+- `package.json`: `:49-50` → `agent-browser 0.43.0`, `agent-desktop 1.3.1` (exact pins,
+  AGENTS.md rule 4); `:3` version → `1.0.13`; `:44` `engines.node` `>=18` → `>=22` (0.43.0
+  declares `>=22`; measured hosts: production AryaCode Node 24.21.0 / Electron 44.7.0, agent
+  shell v26.1.0). Regenerate `package-lock.json` with `npm install --package-lock-only`
+  (current pins `:13-14`, `:55-56`, `:69-70`; the new lock must carry the seven
+  `@agent-browser/cli-*` entries). No new files, so `files` (`:21-42`) is unchanged.
+- `mcp/browser-launcher.mjs`: `nativeBin()` (`:50-63`) becomes
+  **`export async function nativeBin()`** with
+  `const PKG_ROOT = dirname(require.resolve('agent-browser/package.json'))`; primary path
+  `await import('agent-browser/scripts/native.js')` → `nativeTarget()` →
+  `findNativeBinary(PKG_ROOT, target) ?? null` (upstream's own resolver: win32 always
+  `@agent-browser/cli-win32-x64-msvc`, arm64 candidates
+  `['agent-browser-win32-arm64.exe','agent-browser-win32-x64.exe']`, musl naming,
+  engine-anchored `createRequire`, deliberately subprocess-free). Fallback when the engine has
+  no `scripts/native.js` (≤0.42) or a future `exports` field blocks the import: the 1.0.12
+  beside-the-shim ladder plus an engine-anchored platform-package attempt — and a shim
+  fallback is never silent (the existing stderr line `:195-199`). Replace `isMusl()`
+  (`:36-45`, `execSync('ldd --version')`) with a subprocess-free `hostLibc()` copy of the
+  upstream technique (`process.report.excludeNetwork`, `report.header.glibcVersionRuntime`,
+  `report.sharedObjects` regex, `/lib/ld-musl-<aarch64|x86_64>.so.1`), used only by the
+  fallback. Make `SHIM` (`:32`) lazy so importing the module without agent-browser cannot
+  throw (A3 imports it). `main()` (`:187`) becomes async and the `:225` guard calls
+  `main().catch(...)`. Unchanged: `ensureExecutable` `:68-79`, the
+  `env.AGENT_BROWSER_EXECUTABLE_PATH` block `:204-206`, the spawn branches `:207-209`, the
+  flag-strip transform `:105-160`, signal handling `:220-222`.
+- `index.js`: `engineBinaryReady` (`:119-131`) becomes engine-aware. agent-desktop keeps the
+  `root/bin` `${platform}-${arch}` token scan. agent-browser: `await import('./mcp/browser-launcher.mjs')`
+  → `await nativeBin()` → `binary:'platform-package'`; else the legacy scan
+  (`'package-bin'`, covers a postinstall-downloaded exe and ≤0.42); else postinstall +
+  re-check (`'downloaded'`). Without this, 0.43.0's empty `root/bin` makes the scan false →
+  `ensureEngine` (`:133-149`) runs the vendor postinstall on **every start** (it finds the
+  platform package, logs `✓ Native binary ready: @agent-browser/cli-win32-x64-msvc`, and does
+  **not** copy the exe into `bin/`) → the re-scan is still false → status `ok:false` plus the
+  `:353-356` warning. Keep the result shape `{package, ok, binary, reason?, message?}` for
+  `mcpStatus` (`:62`, `:350`) and the status route (`:483`).
+- `scripts/hide-consoles.ps1:38` PathPattern →
+  `'\\node_modules\\(@agent-browser\\[^\\]+|agent-(browser|desktop))\\bin\\'` (the native now
+  lives at `node_modules\@agent-browser\cli-win32-x64-msvc\bin\agent-browser.exe`). `:34`
+  TitlePattern already matches `agent-browser.exe`.
+- Verified as needing **no** change: `agent-desktop --help` 1.2.0 vs 1.3.1 differs only by the
+  new `sandbox` command, and `lib/platform.js` still exports `resolve() → {binaryName,
+  released}`, so `mcp/adapter-server.mjs:35-46` is untouched; `agent-browser mcp --help`
+  differs only by a `structuredContent.response` doc paragraph, so every flag
+  `browserArgs()` injects is intact; `skills/arya-desktop/SKILL.md` carries no version or
+  tool-count claim.
+
+### Part B — settings UI (every defect below is visible in the user's 2026-11-19 screenshot)
+
+- **B1 duplicate disclosure label:** `client.js:335` and `:345` both render `t('appearance')`
+  → "More indicator options" twice. Add `progressAppearance` (en "Overlay options", zh
+  "浮窗选项") and use it at `:345`.
+- **B2 broken icon:** `:364` reads
+  `arts.monitor && arts.monitor(draft.browserHeaded) || arts.cursor(draft.browserHeaded)` —
+  `arts.monitor` does not exist (`monitor` is a standalone helper at `:240`), so "Show the
+  browser window" draws the ghost-cursor art. Add `arts.browser(on)` to the `arts` map
+  (`:242-254`, built from `monitor()` + a browser-window frame/address bar) and call it
+  directly.
+- **B3 wrong tool count:** en `:92` "lite lists all 16 tools" / "lite · all 16" and zh `:39`
+  "全部 16 个" vs the truth of **28** (`index.js:227`, README `:114`, and the gate-2 fact that
+  the adapter exposes 28 tools). Fix both dictionaries and the stale comment at
+  `mcp/adapter-server.mjs:151`.
+- **B4 progress-panel detail is unreachable (behavior bug):** `index.js:204` is
+  `progressOverlayMode: z.const('source').default('source')`, so `summary` cannot be stored —
+  contradicting `mcp/settings.mjs:9` (default `'summary'`), `:42`
+  (`SETTING_CHOICES.progressOverlayMode = ['source','summary']`), `:77`, and this file's own
+  `:118`/`:125` record ("`source` painted the model's raw text on the desktop; default →
+  `'summary'`"). README `:112` documents a setting the UI cannot set. Fix: `index.js:204` →
+  union of `['source','summary']` with default `'summary'` (the pattern already at
+  `:208`/`:227`/`:228`); `client.js:10` default → `'summary'`; add a segment control in the
+  Progress overlay disclosure (`:345-351`) with new keys `progressMode` /
+  `progressModeSummary` ("Summary — short action lines") / `progressModeSource` ("Raw model
+  text") + zh mirrors. Caveat: a config that already persists `'source'` keeps it until the
+  user switches — the point is that it is now visible and changeable.
+- **B5 missing Resume affordance:** `resumeToken` is in the schema (`index.js:222`,
+  `client.js:15`), `mcp/settings.mjs:90` treats it as a token field, and
+  `mcp/takeover.mjs:145-147` resumes on a changed token
+  (`if (this.config.resumeToken !== this.resumeToken && this.active === 0) { … this.paused =
+  false; this.stoppedSeriesKey = null; this.blockedSeries.clear();
+  this.persist('resumed-by-user'); }`) — yet the Stop section (`:372-380`) offers no resume
+  control while `previewed` (zh `:32` / en `:106`) tells the user to "resume first". Add a
+  **Resume control** button to the Stop section head (next to "Restore default (Esc)")
+  running `run({ resumeToken: Date.now() }, 'resumed')` with new zh/en strings, disabled when
+  `!writable || saving || recording`.
+- **B6 inline validation:** `save()` (`:308-313`) rejects seven fields but reports one generic
+  sentence (`t('invalid')` / `t('invalidBrowser')`). Tag the offending control with
+  `data-arya-invalid` + `aria-invalid`, add a CSS rule in the `:137-209` block, and name the
+  field in the message. Scope: `indicatorText`, `pointerLabel`, `indicatorIdleMs`,
+  `browserSession`, `browserCdp`, `browserStateFile`, `browserExecutablePath` (the last two
+  are where issue #1's reporter struggled).
+- **B7 web-lane numbers and the stale token claim:** `browserToolsHint` (zh `:43` / en `:96`)
+  states the 0.43.0 counts — core **33**, network 9, state 27, debug 40, tabs 13, react 8,
+  mobile 15, all **64** (the published `all 156` is wrong for **both** engines; measured 64).
+  `browserFlagsHint` (zh `:44` / en `:97`) — upstream #2311 lists only per-tool args, so
+  `strip` removes **52 keys / 6,801 B ≈ 1.7k tokens**, not 406 keys / ~18k; keep the setting
+  (still worth ~1.7k, and it keeps an older hoisted engine small). Drop the duplicated
+  "applies after the next MCP restart" clause from both tooltips; keep the single `:371`
+  caption.
+- **B8 engine/status visibility (the biggest gap in the page).** Baseline, no plumbing and no
+  drift: a caption under the header with new keys `lanes` / `lanesHint` ("Two lanes: desktop
+  (`agent-desktop`) and web (`agent-browser`).") + zh mirror, and **no** version numbers in the
+  UI. Spike, behind silent degradation: a collapsed *Status* disclosure at the bottom that
+  fetches this plugin's own status route (`GET /plugins/arya/status?token=…`, same origin as
+  the renderer, token from `window.__DSH_BOOT__`) and renders plugin version, `mcp.engines`
+  per package (`ok` + `binary`/`reason`), `mcp.servers`, `takeover.paused` / `seriesActive`,
+  and the effective `browserExecutablePath` — exactly the data that makes an issue-#2-class
+  problem self-diagnosable. Acceptance: if the fetch fails, the token is unavailable, or the
+  payload shape is unexpected, render one "Status unavailable" line and leave the form
+  untouched; if the `__DSH_BOOT__` token field or same-origin reachability fails at
+  implementation time, ship the baseline only and record the follow-up here.
+- **B9 new web tool rows:** `browserActionKeys` (`:386`) gains `flow_run`, `flow_save`,
+  `flow_list`, `flow_steps` with new label keys `flowRun` / `flowSave` / `flowInspect` in both
+  dictionaries (zh `:70-73`, en `:123-126`). Wire keys stay
+  `mcp__arya_browser__agent_browser_<name>` (AGENTS.md rule 9) → 33 web rows + 16 desktop rows.
+
+### Part C — docs and records
+
+`AGENTS.md:50-51` (rule 4 versions); `NOTICE.md:7,11`; `README.md:209,212` +
+`README.zh.md:190,193`; `README.md:115` / `README.zh.md:100` tool-profile table (core 33, all
+64); `README.md:65-68` / `README.zh.md:57` install guidance — agent-browser's native now
+arrives as an **optional dependency** (pnpm installed the platform package while still
+reporting `[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: agent-browser@0.43.0`), so only
+`agent-desktop` needs an approved build; `docs/PLAN.md:3,105,106` stay (design history, rule
+10); `CHANGELOG.md` new `## 1.0.13 — <release date>` covering both halves; this file's
+post-release record. Release shape decided: **one 1.0.13 containing both halves** (one gate-2
+pass and one gate-4 run; the UI fixes are string/icon-level). Alternative if the maintainer
+prefers: 1.0.13 engine-only, then 1.1.0 for the UI.
+
+### Verification (all seven, in order)
+
+1. Resolution matrix: re-run `.tmp-verify/engines/probe-in-plugin.mjs` against the repo
+   `node_modules` (npm flat) and `install-pnpm/myplugin` (pnpm strict) — `nativeBin()` must
+   return `…\@agent-browser\cli-win32-x64-msvc\bin\agent-browser.exe` in both, and the
+   beside-the-shim path for a 0.41.2 install.
+2. Launcher end-to-end: `Win32_Process` shows the child as `agent-browser.exe` with **no
+   node+shim rung**; `tools/list` = 33 core tools; the strip transform still removes keys.
+3. Console windows: `issue2-console-windows.ps1` with the widened pattern → 0 visible engine
+   windows, with the 1.0.11 production profile as the positive control (never trust a bare
+   zero — see `:485-488`).
+4. AGENTS.md rule 9 replay: `.tmp-verify/toolview-keys.mjs` extended to 33 browser names →
+   PASS (49 keys, no bare key, no keyed-slot collision).
+5. Status route reports both engines ready with `binary:'platform-package'` for agent-browser.
+6. Gate 2 manual dev AryaCode pass (rule 2 of `dsh-arya-market/AGENTS-PLUGINS.md`): packed
+   tarball via `pnpm remove` + `pnpm add file:<tarball>`; launch with `ARYACODE_REPO`,
+   `ELECTRON_DISABLE_SANDBOX=1`, `DSH_DESKTOP_RENDERER_DEBUG_PORT=9333`, stdin from `NUL`;
+   drive one window through a ref with the harness's own scratch file (Win11 Notepad is
+   single-instance — target only the window you own), load one page
+   (`gate2c-e2e-installed.mjs`: msedge count rises and falls, UA carries `Edg/`), press Esc
+   and see it stop; **then open Settings and exercise B1-B8** (no duplicate label, correct
+   browser-window icon, preset says 28, progress detail switchable and effective, Resume
+   un-pauses a stopped series, an invalid browser path flags inline, the Status disclosure
+   renders or degrades).
+7. Gate 4: `node ../dsh-arya-market/scripts/release-plugin.mjs --dry-run`, then the real run
+   from a clean committed tree; verify the five AGENTS.md release gates; npmmirror sync with
+   the working form
+   `PUT https://registry.npmmirror.com/-/package/@aryacode%2Fdsh-plugin-arya-computer-use/syncs`;
+   record here; commit + push. On an npm propagation timeout re-run the same command (the
+   already-published guard finishes the rest) — never hand-edit `index.json`, never hand-cut
+   the tag, never re-publish a version.
+
+### Risks, decisions, assumptions
+
+- **win32-arm64:** no `@agent-browser/cli-win32-arm64` package exists; upstream prefers a
+  source-built `agent-browser-win32-arm64.exe` then the x64 exe through Windows emulation;
+  the win32-x64-msvc package declares `cpu:["x64","arm64"]`. Verified from manifests only — no
+  arm64 host here. **musl/Alpine:** chosen by the engine's `hostLibc()`; untestable here.
+- A profile hoisting an older agent-browser is covered by the fallback ladder; an upstream
+  `exports` field would force the fallback plus the stderr line, never a silent shim.
+- `engines.node >=22` could refuse a pre-22 host (measured production is 24.21.0) — flagged
+  assumption.
+- The four `flow_*` tools are **accepted as upstream core** rather than filtered out:
+  `flow_run` exposes `allowWrite`, and the web lane has no consent gate equivalent to
+  `physicalAllowed`; filtering would be new machinery this plugin does not have.
+- agent-desktop's new `sandbox` command stays out of scope. agent-desktop#602 may change
+  desktop error kinds — verify during the gate-2 pass, no code change planned.
+- B8's Status spike depends on a renderer→status-route fetch working; it is explicitly allowed
+  to degrade to a single line.
+
+### Measured evidence the plan rests on (2026-11-19, do not re-derive)
+
+- pnpm resolution matrix: 1.0.12 beside-the-shim rule NOT FOUND; plugin-anchored
+  `@agent-browser/cli-win32-x64-msvc/package.json` resolve UNRESOLVABLE (MODULE_NOT_FOUND);
+  engine-anchored `createRequire` resolves.
+- `tools/list` through the launcher: **29 → 33** core tools on 0.43.0; the four new names are
+  `flow_run`, `flow_save`, `flow_list`, `flow_steps`.
+- Flag-strip economics on 0.43.0: `strip` removes **52 keys / 73,595 B → 6,801 B** of schema
+  (406 keys was the 0.41.2 number); profile `all` measures **64** tools, so README's 156 was
+  already wrong for the pinned 0.41.2 engine.
+- `AGENT_BROWSER_EXECUTABLE_PATH` is still honored in `mcp` mode (UA
+  `HeadlessChrome/157.0.0.0 … Edg/157.0.0.0`) while `--executable-path` is still **ignored**
+  there — the comment at `mcp/browser-launcher.mjs:200-206` stays correct. An
+  engine-version warning also appears on a stale Chrome
+  (`Chrome 156.0.8078.82 is behind the current stable release 158.0.8127.36`).
+- `agent-desktop --help` 1.2.0 vs 1.3.1: only the new `sandbox` command differs.
+
+### Out of scope (open threads this plan does not close)
+
+- The deferred **issue #2** close — explicit approval or on/after 2026-11-24.
+- The production AryaCode profile stays on 1.0.11 until the catalogue reaches it.
+- Live engine diagnostics beyond B8's spike; the headed-mode gap (`:413-422`).
