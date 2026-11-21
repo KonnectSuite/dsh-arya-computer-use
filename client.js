@@ -1,9 +1,15 @@
 // Browser module: Arya Computer Use settings UI + chat activity rows.
 // Derived from dsh-computer-use-win (MIT, Yu-tao-Li) — browser-policy, tool-preset,
 // and community sections removed; behavior switches (headed/overlay/driver lock) added.
-// 1.0.13 settings overhaul: five labelled lanes, honest measured counts, per-field
-// validation, a Resume affordance, and a live Status panel that reads the host's
-// loopback status route (the two MCP lanes publish facts files the route merges).
+// 1.0.14 settings redesign: the page is built from the host's own settings kit
+// (@deepseek-ai/dsh-client-ui-primitives — SettingsForm, SettingsFormModel, the control
+// catalog), so staged drafts, inline field validation, the Overridden tag and the
+// revision-fenced write are the host's own and the page carries no feature stylesheet
+// (docs/web-styling.md: the primitives catalog is the only channel). Path fields get
+// native pickers through ctx.remote.directoryPicker; Status is three one-line lane rows
+// read from the host's loopback status route — the two MCP lanes publish facts files
+// the route merges. Hosts without the catalog fall back to a plain form over the same
+// save ladder, so the chat rows and the settings stay usable either way.
 window.__ModuleLoader__.load({
   id: '@aryacode/dsh-plugin-arya-computer-use',
   factory: (require) => {
@@ -12,6 +18,11 @@ window.__ModuleLoader__.load({
     // The host's own status route (index.js STATUS_PATH). Same-origin, loopback-only,
     // no token — the panel is read-only and the route already refuses non-loopback.
     const STATUS_PATH = '/plugins/arya/status';
+    // The component catalog, as a seed-table module: require resolves it to the host's
+    // own singleton when the host ships one (packages/client/web/src/seed.ts), and
+    // throws on hosts that do not. The guarded require keeps everything else alive.
+    let P = null;
+    try { P = require('@deepseek-ai/dsh-client-ui-primitives'); } catch { P = null; }
     const defaults = {
       progressOverlayEnabled: true, progressOverlayMode: 'summary', progressOverlayOpacity: 60,
       progressOverlayWidth: 360, progressOverlayHeight: 240, progressOverlayPosition: 'top-right',
@@ -94,7 +105,7 @@ window.__ModuleLoader__.load({
         statusElevation: '权限', elevatedYes: '已管理员提权', elevatedNo: '未提权（需以管理员身份重启 AryaCode）', elevatedUnknown: '未知',
         statusLease: '驱动锁目录', leaseYes: '存在', leaseNo: '缺失（以管理员身份启动 AryaCode 后会自动创建）',
         statusEngines: '引擎自检', engineOk: '正常', engineMissing: '缺失', statusDriver: '当前驱动者', statusNone: '无',
-        statusMode: { packagebin: '随包二进制', 'platform-package': '平台包', shim: 'JS 兜底', downloaded: '已下载' },
+        statusMode: { packagebin: '随包二进制', platformpackage: '平台包', shim: 'JS 兜底', downloaded: '已下载' },
         see: '查看了屏幕', read: '读取了界面控件', windows: '查看了打开的窗口', findControl: '查找了界面控件',
         clickAction: '点击了目标', valueAction: '填写了控件内容', typeAction: '输入了文本', keyAction: '发送了按键',
         scrollAction: '滚动了页面', waitAction: '等待了界面响应', ocrAction: '识别了屏幕文字',
@@ -107,6 +118,9 @@ window.__ModuleLoader__.load({
         keyPage: '发送了按键', shotPage: '截取了网页', evalPage: '执行了页面脚本', tabsPage: '管理了标签页', closePage: '关闭了浏览器',
         waitPage: '等待网页响应', infoPage: '读取了页面信息', scrollPage: '滚动了网页', navPage: '导航到新地址', selectPage: '选择了选项',
         togglePage: '切换了页面控件', flowRun: '运行了已保存的流程', flowSave: '保存了网页流程', flowInspect: '查看了网页流程',
+        browse: '选择文件夹…', chooseFile: '选择文件…', noFiles: '该文件夹中没有匹配的文件', detectedBrowsers: '检测到的浏览器', noDetectedBrowsers: '未检测到浏览器，请手动选择文件',
+        technical: '技术详情', copy: '复制', copied: '已复制', truncatedAt: '内容已截断至', readOnly: '只读', saveSaving: '正在保存…',
+        overridden: '已覆盖', reset: '恢复默认', invalidValue: '值无效', invalidRange: '需为范围内的整数', invalidChord: '需为按键或组合键，例如 F8 或 Ctrl+Alt+K', toolsUnit: '个工具',
       },
       en: {
         nav: 'Computer Use', title: 'Arya Computer Use', pluginDescription: 'Drives Windows apps through accessibility controls, shows a takeover indicator, and stops on Esc.',
@@ -175,7 +189,7 @@ window.__ModuleLoader__.load({
         statusElevation: 'Elevation', elevatedYes: 'elevated (administrator)', elevatedNo: 'not elevated — restart AryaCode as administrator', elevatedUnknown: 'unknown',
         statusLease: 'Lease root', leaseYes: 'present', leaseNo: 'missing — start AryaCode as administrator and it is created',
         statusEngines: 'Engine self-check', engineOk: 'ok', engineMissing: 'missing', statusDriver: 'Driving now', statusNone: 'none',
-        statusMode: { packagebin: 'shipped binary', 'platform-package': 'platform package', shim: 'JS fallback', downloaded: 'downloaded' },
+        statusMode: { packagebin: 'shipped binary', platformpackage: 'platform package', shim: 'JS fallback', downloaded: 'downloaded' },
         see: 'Viewed the screen', read: 'Read interface controls', windows: 'Listed open windows', findControl: 'Looked for controls',
         clickAction: 'Clicked the target', valueAction: 'Filled in a control', typeAction: 'Entered text', keyAction: 'Sent a key press',
         scrollAction: 'Scrolled the page', waitAction: 'Waited for the interface', ocrAction: 'Read screen text',
@@ -188,8 +202,16 @@ window.__ModuleLoader__.load({
         keyPage: 'Sent a key press', shotPage: 'Captured the page', evalPage: 'Evaluated on the page', tabsPage: 'Managed tabs', closePage: 'Closed the browser',
         waitPage: 'Waited for the page', infoPage: 'Read page information', scrollPage: 'Scrolled the page', navPage: 'Navigated', selectPage: 'Selected an option',
         togglePage: 'Toggled a page control', flowRun: 'Ran a saved flow', flowSave: 'Saved a page flow', flowInspect: 'Reviewed page flows',
+        browse: 'Browse…', chooseFile: 'Choose file…', noFiles: 'No matching files in that folder', detectedBrowsers: 'Detected browsers', noDetectedBrowsers: 'None detected — use Choose file',
+        technical: 'Technical details', copy: 'Copy', copied: 'Copied', truncatedAt: 'truncated at ', readOnly: 'Read-only', saveSaving: 'Saving…',
+        overridden: 'Overridden', reset: 'Reset to default', invalidValue: 'invalid value', invalidRange: 'needs a whole number in range', invalidChord: 'use a key or combination such as F8 or Ctrl + Alt + K', toolsUnit: 'tools',
       },
     };
+    // Translations: apply() binds the registered namespace once; Card refreshes it
+    // from the slot-provided t on every render, so a language switch mid-session
+    // repaints nested components too. The English table is the offline fallback.
+    let tr = (key) => (Object.prototype.hasOwnProperty.call(dictionaries.en, key) ? dictionaries.en[key] : key);
+    const hasKey = (key) => Object.prototype.hasOwnProperty.call(dictionaries.en, key);
     function shortcutFromEvent(event) {
       const code = event.code || '', special = { Space: 'Space', Enter: 'Enter', NumpadEnter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Pause: 'Pause', CapsLock: 'CapsLock', NumLock: 'NumLock', ScrollLock: 'ScrollLock' };
       let key = /^Key[A-Z]$/.test(code) ? code.slice(3) : /^Digit[0-9]$/.test(code) ? code.slice(5) : /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code) ? code : special[code];
@@ -198,377 +220,423 @@ window.__ModuleLoader__.load({
       if (!key && event.keyCode >= 112 && event.keyCode <= 135) key = 'F' + (event.keyCode - 111);
       return key ? [event.ctrlKey && 'Ctrl', event.altKey && 'Alt', event.shiftKey && 'Shift', event.metaKey && 'Win', key].filter(Boolean).join('+') : null;
     }
-    const css = `
-      [data-arya-settings]{--arya-card:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-2,Canvas));--arya-sunken:var(--dsw-alias-bg-module-platform,color-mix(in srgb,CanvasText 4%,Canvas));--arya-control:var(--dsw-alias-bg-layer-1,Canvas);--arya-fg:var(--dsw-alias-label-primary,CanvasText);--arya-muted:var(--dsw-alias-label-secondary,#61666b);--arya-subtle:var(--dsw-alias-label-tertiary,#81858c);--arya-line:var(--dsw-alias-border-l2,rgba(128,128,128,.2));--arya-line-strong:var(--dsw-alias-border-l3,rgba(128,128,128,.3));--arya-hover:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.1));--arya-accent:var(--dsw-alias-state-business-primary,#4176e6);--arya-primary:var(--dsw-alias-button-primary-fill,#0f1115);--arya-primary-fg:var(--dsw-alias-label-primary-foreground,#fff);--arya-tip-bg:var(--dsw-alias-tooltip-bg,#2b2f36);--arya-tip-fg:#fff;--arya-bad:#e05656;color:var(--arya-fg);font:14px/1.55 var(--dsw-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif);max-width:720px;list-style:none;box-sizing:border-box;margin:0;padding:0 0 8px}
-      [data-arya-settings] *{box-sizing:border-box}
-      [data-arya-settings] h2{font-size:18px;line-height:1.4;font-weight:600;margin:0}
-      [data-arya-settings] h3{font-size:15px;line-height:22px;font-weight:600;margin:0}
-      [data-arya-settings] p{margin:4px 0 0;color:var(--arya-muted);font-size:13px;line-height:1.55}
-      [data-arya-settings] .arya-header{padding:0 0 12px}
-      [data-arya-settings] .arya-header>p{color:var(--arya-subtle)}
-      [data-arya-settings] .arya-section{padding:0 0 18px}
-      [data-arya-settings] .arya-section-head{display:flex;align-items:center;gap:6px;margin:0 0 6px}
-      [data-arya-settings] .arya-section-head .arya-end{margin-left:auto;display:flex;gap:6px}
-      [data-arya-settings] .arya-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px}
-      [data-arya-settings] .arya-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px;padding:8px 0 2px}
-      [data-arya-settings] .arya-fields.arya-wide{grid-template-columns:minmax(0,1fr)}
-      [data-arya-settings] .arya-subhead{margin:12px 0 2px;font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--arya-subtle)}
-      [data-arya-settings] .arya-subhead:first-child{margin-top:2px}
-      [data-arya-settings] .arya-item{display:flex;gap:10px;align-items:flex-start;min-width:0}
-      [data-arya-settings] .arya-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-      [data-arya-settings] .arya-item-title{font-size:13.5px;font-weight:500;line-height:1.5}
-      [data-arya-settings] .arya-art{flex:none;display:flex;align-items:center;justify-content:center;min-width:56px;padding-top:2px}
-      [data-arya-settings] .arya-art svg{width:56px;height:35px}
-      [data-arya-settings] .arya-art svg *{fill:none;stroke:var(--arya-muted);stroke-width:1.4}
-      [data-arya-settings] .arya-art svg .a-acc{stroke:var(--arya-accent);fill:color-mix(in srgb,var(--arya-accent) 16%,transparent)}
-      [data-arya-settings] .arya-art svg .a-glow{stroke:var(--arya-accent);opacity:.55}
-      [data-arya-settings] .arya-art svg .a-ink{stroke:var(--arya-subtle);opacity:.6}
-      [data-arya-settings] .arya-art svg .a-ink2{stroke:var(--arya-subtle);opacity:.35}
-      [data-arya-settings] .arya-art svg .a-win{fill:var(--arya-control)}
-      [data-arya-settings] .arya-art svg .a-bar{fill:var(--arya-sunken);stroke:none}
-      [data-arya-settings] .arya-art svg .a-pill{fill:var(--arya-control)}
-      [data-arya-settings] .arya-art svg .a-dot{fill:var(--arya-accent);stroke:none}
-      [data-arya-settings] .arya-art svg .a-text{fill:var(--arya-subtle);stroke:none}
-      [data-arya-settings] .arya-art svg .a-key{fill:var(--arya-sunken)}
-      [data-arya-settings] .arya-art svg .a-cap{fill:var(--arya-muted);stroke:none;font-size:9px}
-      [data-arya-settings] .arya-art svg .a-tag{fill:var(--arya-primary-fg);stroke:none;font-size:7px}
-      [data-arya-settings] input[type=radio],[data-arya-settings] input[type=checkbox]{accent-color:var(--arya-accent);width:16px;height:16px;flex:none;margin:2px 0 0}
-      [data-arya-settings] input[type=checkbox][role=switch]{width:34px;height:20px;border-radius:10px;appearance:none;background:var(--arya-sunken);border:.5px solid var(--arya-line-strong);position:relative;cursor:pointer;transition:background .15s;margin:0;flex:none}
-      [data-arya-settings] input[type=checkbox][role=switch]:checked{background:var(--arya-accent);border-color:var(--arya-accent)}
-      [data-arya-settings] input[type=checkbox][role=switch]:after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:7px;background:#fff;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.35)}
-      [data-arya-settings] input[type=checkbox][role=switch]:checked:after{left:16px}
-      [data-arya-settings] input[type=checkbox][role=switch]:disabled{opacity:.5;cursor:default}
-      [data-arya-settings] summary{cursor:pointer;color:var(--arya-fg);font-size:13px;font-weight:500;list-style:none;display:flex;align-items:center;gap:7px;padding:11px 0;width:fit-content}
-      [data-arya-settings] summary::-webkit-details-marker{display:none}
-      [data-arya-settings] summary:before{content:'';width:0;height:0;border-style:solid;border-width:4.5px 0 4.5px 6px;border-color:transparent transparent transparent currentColor;opacity:.55;transition:transform .15s}
-      [data-arya-settings] details[open]>summary:before{transform:rotate(90deg)}
-      [data-arya-settings] select,[data-arya-settings] input[type=number],[data-arya-settings] input[type=text]{background:var(--arya-control);color:var(--arya-fg);border:.5px solid var(--arya-line-strong);border-radius:var(--dsw-radius-sm,8px);padding:5px 8px;font:inherit;min-width:0;width:100%}
-      [data-arya-settings] [data-arya-invalid]{border-color:var(--arya-bad);outline:2px solid color-mix(in srgb,var(--arya-bad) 55%,transparent);outline-offset:1px}
-      [data-arya-settings] .arya-number{display:flex;align-items:center;gap:6px}
-      [data-arya-settings] .arya-number input{width:96px}
-      [data-arya-settings] .arya-segment{display:inline-flex;border:.5px solid var(--arya-line-strong);border-radius:var(--dsw-radius-sm,8px);overflow:hidden}
-      [data-arya-settings] .arya-segment label{display:flex;align-items:center;gap:6px;padding:5px 12px;font-size:13px;cursor:pointer;border-left:.5px solid var(--arya-line)}
-      [data-arya-settings] .arya-segment label:first-child{border-left:0}
-      [data-arya-settings] .arya-segment label:has(input:checked){background:var(--arya-hover)}
-      [data-arya-settings] .arya-segment input{position:absolute;opacity:0;pointer-events:none}
-      [data-arya-settings] button{font:inherit;color:var(--arya-fg);background:var(--arya-control);border:.5px solid var(--arya-line-strong);border-radius:var(--dsw-radius-sm,8px);padding:5px 12px;cursor:pointer;transition:background .15s}
-      [data-arya-settings] button:hover:enabled{background:var(--arya-hover)}
-      [data-arya-settings] button:disabled{opacity:.5;cursor:default}
-      [data-arya-settings] button.arya-small{font-size:12.5px;padding:3px 9px}
-      [data-arya-settings] button.arya-primary{background:var(--arya-primary);color:var(--arya-primary-fg);border-color:transparent}
-      [data-arya-settings] .arya-footer{display:flex;align-items:center;gap:10px;border-top:.5px solid var(--arya-line);padding-top:12px}
-      [data-arya-settings] .arya-status{flex:1;font-size:13px;color:var(--arya-muted)}
-      [data-arya-settings] .arya-status[data-tone=success]{color:var(--arya-accent)}
-      [data-arya-settings] .arya-status[data-tone=error]{color:var(--arya-bad)}
-      [data-arya-settings] .arya-actions{display:flex;gap:8px}
-      [data-arya-settings] .arya-info{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:8px;color:var(--arya-subtle);cursor:help;vertical-align:baseline;margin-left:3px}
-      [data-arya-settings] .arya-info:hover,[data-arya-settings] .arya-info:focus-visible{color:var(--arya-fg);background:var(--arya-hover);outline:none}
-      [data-arya-settings] .arya-info svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.5}
-      [data-arya-settings] .arya-tip{position:fixed;z-index:1000;max-width:280px;padding:8px 11px;border-radius:var(--dsw-radius-sm,8px);background:var(--arya-tip-bg);color:var(--arya-tip-fg);font-size:12.5px;line-height:1.5;box-shadow:0 4px 16px rgba(0,0,0,.28);visibility:hidden}
-      [data-arya-settings] .arya-tip[data-open]{visibility:visible}
-      [data-arya-settings] .arya-caption{font-size:12px;color:var(--arya-subtle)}
-      [data-arya-settings] .arya-shortcut-value{display:flex;flex-wrap:wrap;align-items:center;gap:3px;min-height:24px;font-size:12.5px;color:var(--arya-fg)}
-      [data-arya-settings] .arya-shortcut-value kbd{font:inherit;font-size:12px;padding:2px 7px;border:.5px solid var(--arya-line-strong);border-bottom-width:1.5px;border-radius:5px;background:var(--arya-sunken)}
-      [data-arya-settings] .arya-shortcut-value small{color:var(--arya-subtle);font-size:11.5px;margin-left:4px}
-      [data-arya-settings] .arya-shortcut-value[data-recording]{outline:2px solid var(--arya-accent);outline-offset:2px;border-radius:6px}
-      [data-arya-settings] .arya-hint{font-size:12px;color:var(--arya-subtle);margin:2px 0 0}
-      [data-arya-settings] .arya-nowrap{white-space:nowrap}
-      [data-arya-settings] .arya-statusrow{display:flex;gap:10px;align-items:baseline;padding:2.5px 0;font-size:12.5px;border-bottom:.5px solid var(--arya-line)}
-      [data-arya-settings] .arya-statusrow:last-of-type{border-bottom:0}
-      [data-arya-settings] .arya-statusrow b{flex:none;min-width:130px;font-weight:500;color:var(--arya-muted)}
-      [data-arya-settings] .arya-statusrow span{min-width:0;overflow-wrap:anywhere}
-      [data-arya-settings] .arya-ok{color:var(--arya-accent)}
-      [data-arya-settings] .arya-bad{color:var(--arya-bad)}
-      [data-arya-settings] .arya-status-lane{margin:8px 0 2px;font-size:12px;font-weight:600;color:var(--arya-subtle)}
-      @media (max-width:640px){[data-arya-settings] .arya-grid,[data-arya-settings] .arya-fields,[data-arya-settings] .arya-fields.arya-wide{grid-template-columns:minmax(0,1fr)}[data-arya-settings] .arya-statusrow{flex-direction:column;gap:1px}[data-arya-settings] .arya-statusrow b{min-width:0}}
-    `;
-    function Info({ id, label, text }) {
-      const anchor = React.useRef(null), tip = React.useRef(null), timer = React.useRef(0);
-      const [open, setOpen] = React.useState(false), [pinned, setPinned] = React.useState(false);
-      const show = (next, delay) => { clearTimeout(timer.current); timer.current = setTimeout(() => { setOpen(next); if (!next) setPinned(false); }, delay); };
-      const toggle = () => { if (pinned) show(false, 0); else { clearTimeout(timer.current); setOpen(true); setPinned(true); } };
-      React.useEffect(() => () => clearTimeout(timer.current), []);
-      React.useLayoutEffect(() => {
-        const icon = anchor.current, el = tip.current;
-        if (!open || !icon || !el) return;
-        try { el.showPopover(); } catch {}
-        const r = icon.getBoundingClientRect(), width = el.offsetWidth, height = el.offsetHeight, view = document.documentElement, gap = 8, edge = 8;
-        let side = 'top', left = r.left + r.width / 2 - width / 2, top = r.top - gap - height;
-        if (top < edge) { if (r.left - gap - width >= edge) { side = 'left'; left = r.left - gap - width; top = r.top + r.height / 2 - height / 2; } else { side = 'bottom'; top = r.bottom + gap; } }
-        left = Math.max(edge, Math.min(left, view.clientWidth - edge - width)); top = Math.max(edge, Math.min(top, view.clientHeight - edge - height));
-        Object.assign(el.style, { left: left + 'px', top: top + 'px' }); el.dataset.side = side;
-        const close = () => { clearTimeout(timer.current); setOpen(false); setPinned(false); };
-        const key = (event) => { if (event.key === 'Escape') { event.stopPropagation(); close(); } };
-        const press = (event) => { if (!icon.contains(event.target)) close(); };
-        window.addEventListener('scroll', close, true); window.addEventListener('resize', close); window.addEventListener('keydown', key, true); window.addEventListener('pointerdown', press, true);
-        return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); window.removeEventListener('keydown', key, true); window.removeEventListener('pointerdown', press, true); try { el.hidePopover(); } catch {} };
-      }, [open]);
-      return h('span', { className: 'arya-info', ref: anchor, tabIndex: 0, role: 'button', 'aria-label': label, 'aria-describedby': id, 'data-open': open || undefined,
-        onPointerEnter: () => show(true, 120), onPointerLeave: () => { if (!pinned) show(false, 250); }, onFocus: () => show(true, 0), onBlur: () => { if (!pinned) show(false, 0); },
-        onClick: (event) => { event.preventDefault(); if (!tip.current?.contains(event.target)) toggle(); }, onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } } },
-        h('svg', { viewBox: '0 0 16 16', 'aria-hidden': true, focusable: false }, h('circle', { cx: 8, cy: 8, r: 6.4 }), h('path', { d: 'M8 7.3v3.9M8 4.9v.2' })),
-        h('span', { className: 'arya-tip', id, role: 'tooltip', ref: tip, popover: 'manual', 'data-open': open || undefined }, text));
-    }
-    const drawing = (...children) => h('svg', { viewBox: '0 0 112 70', 'aria-hidden': true, focusable: false }, ...children);
-    const box = (className, x, y, width, height, rx = 0) => h('rect', { className, x, y, width, height, rx });
-    const arrow = (x, y) => h('path', { className: 'a-ptr', d: `M${x} ${y}v15.5l3.8-3.6 2.7 6.1 2.6-1.1-2.7-6h5.4z` });
-    const monitor = () => [box('a-desk', 9, 5, 94, 52, 4), h('path', { className: 'a-bar', d: 'M9.4 50h93.2v3.6a3.4 3.4 0 0 1-3.4 3.4H12.8a3.4 3.4 0 0 1-3.4-3.4z' }), box('a-ink', 54.5, 52, 3, 3, .8), h('path', { className: 'a-ink', d: 'M50 57h12l1.5 6h-15z' }), box('a-ink', 41, 63, 30, 2, 1)];
-    const banner = (y) => [box('a-pill', 33, y, 46, 9, 4.5), h('circle', { className: 'a-dot', cx: 38.5, cy: y + 4.5, r: 1.8 }), box('a-text', 42.5, y + 3.55, 23, 1.9, .95), box('a-key', 68, y + 2, 8, 5, 1.2)];
-    const arts = {
-      indicator: (on, bottom) => drawing(...monitor(), box('a-win', 22, 15, 48, 27, 2.5), h('path', { className: 'a-bar', d: 'M22 17.5a2.5 2.5 0 0 1 2.5-2.5h43a2.5 2.5 0 0 1 2.5 2.5v2.5H22z' }), box('a-ink', 26, 25, 30, 2.2, 1.1), box('a-ink', 26, 30, 22, 2.2, 1.1), box('a-frame', 22, 15, 48, 27, 2.5),
-        ...(on ? [box('a-glow a-soft', 12, 8, 88, 46, 2.5), box('a-glow', 9.8, 5.8, 92.4, 50.4, 3.6), ...banner(bottom ? 40 : 9.5)] : [])),
-      cursor: (on) => drawing(box('a-ink', 14, 13, 42, 3, 1.5), box('a-ink', 14, 20, 30, 3, 1.5), box('a-ink', 14, 27, 36, 3, 1.5), arrow(48, 25),
-        ...(on ? [box('a-acc', 60, 44, 26, 11, 5.5), h('text', { className: 'a-tag', x: 73, y: 51.9, textAnchor: 'middle' }, 'DSH')] : [])),
-      esc: () => drawing(box('a-ink2', 33, 19, 46, 34, 7), box('a-win', 33, 16, 46, 34, 7), box('a-frame', 33, 16, 46, 34, 7), h('text', { className: 'a-cap', x: 56, y: 37.2, textAnchor: 'middle' }, 'Esc')),
-      progress: (on) => drawing(...monitor(), box('a-win', 22, 15, 48, 27, 2.5), box('a-ink', 26, 25, 30, 2.2, 1.1), box('a-frame', 22, 15, 48, 27, 2.5),
-        ...(on ? [box('a-acc', 58, 12, 40, 26, 3), box('a-text', 62, 17, 26, 2, 1), box('a-text', 62, 22, 30, 2, 1), box('a-text', 62, 27, 20, 2, 1)] : [])),
-      keyboard: (on) => drawing(box('a-win', 14, 10, 84, 34, 4), box('a-ink', 20, 16, 72, 2.4, 1.2), box('a-ink', 20, 22, 60, 2.4, 1.2), box('a-frame', 14, 10, 84, 34, 4),
-        box(on ? 'a-acc' : 'a-ink2', 30, 50, 52, 12, 3), ...(on ? [box('a-text', 34, 53, 6, 2, 1), box('a-text', 42, 53, 6, 2, 1), box('a-text', 50, 53, 6, 2, 1), box('a-text', 58, 53, 6, 2, 1), box('a-text', 66, 53, 6, 2, 1)] : []), arrow(84, 46)),
-      lock: (on) => drawing(box('a-acc', 40, 26, 32, 24, 4), h('path', { className: on ? 'a-acc' : 'a-ink2', d: 'M47 26v-6a9 9 0 0 1 18 0v6' }), box('a-text', 47, 36, 18, 2.4, 1.2)),
-      shield: (on) => drawing(h('path', { className: on ? 'a-acc' : 'a-ink2', d: 'M56 8l30 10v20c0 18-12 26-30 32-18-6-30-14-30-32V18z' }), h('path', { className: 'a-text', d: 'M44 38l9 9 17-18' })),
-      // The web-lane row art: a browser window (address bar + frame) on the desk,
-      // lit when the window is shown. It replaced the accidental ghost-cursor art.
-      browser: (on) => drawing(...monitor(), box(on ? 'a-acc' : 'a-win', 22, 15, 48, 27, 2.5),
-        h('path', { className: 'a-bar', d: 'M22 17.5a2.5 2.5 0 0 1 2.5-2.5h43a2.5 2.5 0 0 1 2.5 2.5v3.5H22z' }),
-        box('a-pill', 25, 17.6, 26, 4.4, 2.2), h('circle', { className: on ? 'a-dot' : 'a-ink', cx: 66.5, cy: 19.8, r: 1.6 }),
-        box('a-ink', 26, 26, 34, 2.2, 1.1), box('a-ink', 26, 31, 24, 2.2, 1.1), box('a-ink', 26, 36, 30, 2.2, 1.1), box('a-frame', 22, 15, 48, 27, 2.5)),
+    // Field specs for the host model. The parse mirrors mcp/settings.mjs — the host
+    // re-checks every write, so a draft the host would reject is flagged inline here
+    // first, and an invalid draft blocks Save (SettingsFormModel.shell().invalid).
+    const rxPath = /^(?:[A-Za-z]:[\\/]|\/)/;
+    const rxDuration = /^(?:0|[0-9]+(?:\.[0-9]+)?(?:ms|s|m|h|d)?)$/i;
+    const rxDomain = /^(?:\*\.)?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
+    const rxAction = /^[A-Za-z0-9_:*.-]+$/;
+    const rxName = /^[\p{L}\p{N}_-]+$/u;
+    const rxCdp = /^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/;
+    const rxChord = /^[A-Za-z0-9]+(?:\+[A-Za-z0-9]+)*$/;
+    const rxEntries = (text, rx) => text.split(/[,\s]+/).filter(Boolean).every((entry) => rx.test(entry));
+    const boolField = (field) => ({ field, format: (v) => String(v === true), parse: (text) => ({ kind: 'set', value: text === 'true' }) });
+    const choiceField = (field, values) => ({ field, format: (v) => String(v ?? ''), parse: (text) => (values.includes(text) ? { kind: 'set', value: text } : undefined) });
+    const intField = (field, min, max, allowZero = false) => ({ field, format: (v) => String(v ?? ''), parse: (text) => {
+      const s = text.trim();
+      if (!s) return { kind: 'clear' };
+      if (!/^-?\d+$/.test(s)) return undefined;
+      const n = Number(s);
+      if (allowZero && n === 0) return { kind: 'set', value: 0 };
+      return n >= min && n <= max ? { kind: 'set', value: n } : undefined;
+    } });
+    const textField = (field, accept, emptyInvalid = false) => ({ field, format: (v) => String(v ?? ''), parse: (text) => {
+      const s = text.trim();
+      if (!s) return emptyInvalid ? undefined : { kind: 'clear' };
+      return accept(s) ? { kind: 'set', value: s } : undefined;
+    } });
+    const specs = [
+      boolField('headedDefault'), boolField('overlayDefault'), boolField('driverLockEnabled'),
+      boolField('indicatorEnabled'), boolField('cursorIndicatorEnabled'), boolField('remoteIndicatorVisible'),
+      boolField('progressOverlayEnabled'), boolField('progressOverlayLocked'),
+      boolField('browserHeaded'), boolField('browserUseSystemCa'),
+      choiceField('progressOverlayMode', ['summary', 'source']),
+      choiceField('toolPreset', ['lite', 'lazy']),
+      choiceField('browserToolFlags', ['strip', 'lean', 'off']),
+      choiceField('indicatorPosition', ['top', 'bottom']),
+      choiceField('browserTools', ['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'webmcp', 'all']),
+      choiceField('progressOverlayPosition', ['top-right', 'top-left', 'bottom-right', 'bottom-left', 'custom']),
+      intField('indicatorIdleMs', 200, 3000),
+      intField('browserDefaultTimeoutMs', 1000, 600000, true),
+      intField('engineCallTimeoutMs', 10000, 300000),
+      intField('leaseRetryBaseMs', 100, 10000, true),
+      intField('progressOverlayOpacity', 20, 100),
+      intField('progressOverlayWidth', 240, 1600),
+      intField('progressOverlayHeight', 160, 1600),
+      intField('progressOverlayX', -32768, 32767),
+      intField('progressOverlayY', -32768, 32767),
+      textField('indicatorText', (s) => s.length <= 120 && !/[\r\n\x00-\x1f]/.test(s), true),
+      textField('pointerLabel', (s) => s.length <= 16 && !/[\r\n\x00-\x1f]/.test(s), true),
+      textField('browserSession', (s) => rxName.test(s)),
+      textField('browserNamespace', (s) => rxName.test(s)),
+      textField('browserCdp', (s) => rxCdp.test(s)),
+      textField('browserIdleTimeout', (s) => rxDuration.test(s)),
+      textField('browserAllowedDomains', (s) => rxEntries(s, rxDomain)),
+      textField('browserConfirmActions', (s) => rxEntries(s, rxAction)),
+      textField('browserProfile', () => true),
+      textField('browserStateFile', (s) => rxPath.test(s)),
+      textField('browserCaCert', (s) => rxPath.test(s)),
+      textField('browserExecutablePath', (s) => rxPath.test(s)),
+      textField('screenshotDir', (s) => rxPath.test(s)),
+      textField('stopShortcut', (s) => rxChord.test(s)),
+      textField('progressLockShortcut', (s) => rxChord.test(s)),
+    ];
+    // Label/hint dictionary keys that differ from the field name, plus placeholders
+    // and numeric input hints. The host model throws on undeclared fields, so the
+    // spec list above and the fields rendered below must stay in lockstep.
+    const meta = {
+      engineCallTimeoutMs: { label: 'engineCallTimeout', hint: 'engineCallTimeoutHint', numeric: true },
+      leaseRetryBaseMs: { label: 'leaseRetryBase', hint: 'leaseRetryBaseHint', numeric: true },
+      indicatorIdleMs: { label: 'delay', hint: 'delayHint', numeric: true },
+      indicatorText: { label: 'text' },
+      pointerLabel: { label: 'cursorLabel', hint: 'cursorLabelHint' },
+      progressOverlayOpacity: { label: 'progressOpacity', numeric: true },
+      progressOverlayWidth: { label: 'progressWidth', numeric: true },
+      progressOverlayHeight: { label: 'progressHeight', numeric: true },
+      progressOverlayX: { label: 'progressX', numeric: true },
+      progressOverlayY: { label: 'progressY', numeric: true },
+      browserDefaultTimeoutMs: { label: 'browserDefaultTimeout', hint: 'browserDefaultTimeoutHint', numeric: true },
+      browserCdp: { placeholder: 'http://127.0.0.1:9222' },
+      browserIdleTimeout: { placeholder: '30m' },
+      browserAllowedDomains: { placeholder: 'example.com, *.example.org' },
+      browserSession: { placeholder: 'arya' },
+      browserNamespace: { placeholder: 'arya' },
+      browserConfirmActions: { placeholder: 'flow_write:deploy, plugin:vault:credential.read' },
+      browserProfile: { placeholder: 'Default' },
+      stopShortcut: { label: 'extraStop', hint: 'shortcutHint' },
+      progressLockShortcut: { label: 'progressShortcut', hint: 'progressShortcutHint' },
     };
-    function Card({ scope, t, savePatch, as = 'li', idPrefix = 'arya', view }) {
-      if (view === 'summary') return h('span', { 'data-arya-summary': true }, t('pluginDescription'), ' ', h('span', { style: { color: 'var(--dsw-alias-label-link,#71a7ff)' } }, t('openSettings')));
-      return h(SettingsGate, { scope, t, savePatch, as, idPrefix });
+    const invalidKeys = {
+      indicatorText: 'invalidText', pointerLabel: 'invalidLabel', indicatorIdleMs: 'invalidDelay',
+      browserSession: 'invalidName', browserNamespace: 'invalidName', browserCdp: 'invalidCdp',
+      browserStateFile: 'invalidPath', browserExecutablePath: 'invalidPath', browserCaCert: 'invalidPath', screenshotDir: 'invalidPath',
+      browserIdleTimeout: 'invalidDuration', browserAllowedDomains: 'invalidDomains', browserConfirmActions: 'invalidActions',
+      browserDefaultTimeoutMs: 'invalidTimeout', engineCallTimeoutMs: 'invalidCallTimeout', leaseRetryBaseMs: 'invalidLeaseBase',
+      progressOverlayOpacity: 'invalidRange', progressOverlayWidth: 'invalidRange', progressOverlayHeight: 'invalidRange',
+      progressOverlayX: 'invalidRange', progressOverlayY: 'invalidRange',
+      stopShortcut: 'invalidChord', progressLockShortcut: 'invalidChord',
+    };
+    // House layout (DeveloperToolsRow anatomy): title + description left, control
+    // right. Only host tokens for color; no feature stylesheet, no feature classes.
+    const rowStyle = { display: 'flex', gap: '14px', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', flexWrap: 'wrap' };
+    const mainStyle = { flex: '1 1 260px', minWidth: '220px' };
+    const titleStyle = { fontSize: '13.5px', fontWeight: 500 };
+    const descStyle = { margin: '3px 0 0', fontSize: '12.5px', lineHeight: 1.5, color: 'var(--dsw-alias-label-secondary,#61666b)' };
+    const groupStyle = { fontSize: '11.5px', fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--dsw-alias-label-tertiary,#81858c)' };
+    const controlsStyle = { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' };
+    const row = (key, titleKey, descKey, control) => h('div', { key, style: rowStyle },
+      h('div', { style: mainStyle }, h('span', { style: titleStyle }, tr(titleKey)), descKey ? h('p', { style: descStyle }, tr(descKey)) : null),
+      control);
+    const head = (key, titleKey, end) => h('div', { key, style: { display: 'flex', alignItems: 'center', gap: '10px', margin: '20px 0 2px' } },
+      h('span', { style: groupStyle }, tr(titleKey)), end ? h('span', { style: { marginLeft: 'auto' } }, end) : null);
+    const subhead = (key, titleKey) => h('div', { key, style: { margin: '14px 0 0', ...groupStyle } }, tr(titleKey));
+    const valueProps = (name, model, shell, extra, idp) => {
+      const st = model.field(name), m = meta[name] || {};
+      const hintKey = m.hint !== undefined ? m.hint : hasKey(name + 'Hint') ? name + 'Hint' : undefined;
+      return {
+        id: idp + '-' + name,
+        label: tr(m.label || name),
+        hint: hintKey ? tr(hintKey) : undefined,
+        text: st.text,
+        overridden: st.overridden,
+        invalid: st.invalid,
+        overriddenLabel: tr('overridden'),
+        resetLabel: tr('reset'),
+        invalidLabel: tr(invalidKeys[name] || 'invalidValue'),
+        disabled: !shell.writable,
+        onEdit: (text) => model.edit(name, text),
+        onReset: () => model.resetField(name),
+        ...(m.numeric ? { numeric: true } : {}),
+        ...(m.placeholder ? { placeholder: m.placeholder } : {}),
+        ...(extra || {}),
+      };
+    };
+    // Native folder dialog — the one OS picker the host exposes
+    // (ctx.remote.directoryPicker.pick(); packages/client/ui-workspace/src/client/
+    // navigation.ts:405). A cancelled dialog (value null) keeps the draft untouched.
+    const pickFolder = (picker) => Promise.resolve(picker.pick()).then((response) => (response && response.ok && typeof response.value === 'string' && response.value ? response.value : null));
+    // Honest two-step for file fields: no file chooser exists on the host, so the
+    // dialog picks the containing folder and the filename comes from
+    // directoryPicker.list() filtered by extension — never typed blind.
+    const listFiles = (picker, accept, setFiles, setOpen) => {
+      pickFolder(picker).then((folder) => {
+        if (!folder) return null;
+        return picker.list(folder).then((listing) => {
+          const rows = listing && listing.ok && listing.value && Array.isArray(listing.value.entries)
+            ? listing.value.entries.filter((entry) => accept.test(entry.name)).map((entry) => ({ id: entry.path, label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '7px', maxWidth: '360px' } }, h(P.FileTypeIcon, { path: entry.name, size: 16 }), h(P.PathLabel, { path: entry.path })) }))
+            : [];
+          setFiles(rows.length ? rows : [{ id: '__none', label: tr('noFiles'), disabled: true }]);
+          setOpen(true);
+        });
+      }).catch(() => { setFiles([{ id: '__none', label: tr('noFiles'), disabled: true }]); setOpen(true); });
+    };
+    function MenuField({ name, model, shell, titleKey, hintKey, items }) {
+      const [open, setOpen] = React.useState(false);
+      const st = model.field(name);
+      const current = items.find((item) => item.id === st.text);
+      return row(name, titleKey, hintKey,
+        h('div', { style: controlsStyle },
+          st.invalid ? h(P.Tag, { tone: 'danger' }, tr(invalidKeys[name] || 'invalidValue')) : null,
+          h(P.Menu, { open, onClose: () => setOpen(false), selectedId: st.text, align: 'end', side: 'bottom', portal: true, items,
+            onSelect: (id) => { model.edit(name, id); setOpen(false); },
+            anchor: h(P.Button, { variant: 'outline', size: 'sm', disabled: !shell.writable, onClick: () => setOpen((v) => !v) }, current && current.short !== undefined ? current.short : st.text) })));
     }
-    function SettingsGate(props) {
-      const state = React.useSyncExternalStore((fn) => props.scope.subscribe(fn), () => props.scope.getSnapshot());
-      if ((state.status !== undefined && state.status !== 'ready') || !state.value) return h(props.as, { 'data-arya-unavailable': true }, h('p', { role: 'status' }, props.t(state.status === 'loading' ? 'loadingSettings' : 'notLoaded')), h('button', { type: 'button', onClick: () => window.location.reload() }, props.t('reloadSettings')));
-      return h(SettingsCard, props);
+    function FolderField({ name, model, shell, picker, idp }) {
+      return h('div', { key: name, style: { padding: '2px 0 9px' } },
+        h(P.SettingsValueField, valueProps(name, model, shell, undefined, idp)),
+        picker ? h('div', { style: { ...controlsStyle, marginTop: '6px' } },
+          h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
+            onClick: () => { pickFolder(picker).then((folder) => { if (folder) model.edit(name, folder); }).catch(() => {}); } }, tr('browse'))) : null);
     }
-    // The Status panel: this plugin's own loopback route, merged with the facts each
-    // MCP lane publishes at start-up. Read-only; a failure is exactly one line and
-    // never touches the form.
-    function StatusPanel({ t, idPrefix, writable, onResume }) {
-      const [data, setData] = React.useState(null), [error, setError] = React.useState(false);
-      const load = React.useCallback(async () => {
-        try {
-          const response = await fetch(STATUS_PATH, { credentials: 'same-origin', cache: 'no-store' });
-          if (!response.ok) throw Error(String(response.status));
-          const body = await response.json();
-          if (!body || typeof body !== 'object' || !body.plugin) throw Error('shape');
-          setData(body); setError(false);
-        } catch { setData(null); setError(true); }
-      }, []);
-      React.useEffect(() => {
-        load();
-        const timer = setInterval(load, 5000);
-        return () => clearInterval(timer);
-      }, [load]);
-      const row = (key, label, value, tone) => h('div', { className: 'arya-statusrow', key }, h('b', null, t(label)), h('span', { className: tone || undefined }, value));
-      const rows = [];
-      if (data) {
-        const browser = data.lanes?.browser, desktop = data.lanes?.desktop, engines = data.engines || {};
-        const modeName = (mode) => (mode && (t('statusMode') || {})[mode === 'package-bin' ? 'packagebin' : mode]) || mode || t('statusNone');
-        if (browser) rows.push(h('p', { className: 'arya-status-lane', key: 'lane-b' }, t('statusLaneBrowser')), row('b-engine', 'statusEngine', 'agent-browser ' + (engines.versions?.['agent-browser'] || '?')), row('b-native', 'statusNative', modeName(browser.nativeMode) + (browser.native ? ' — ' + browser.native : '')), row('b-profile', 'statusProfile', String(browser.toolsProfile || '?') + ' · ' + (browser.stripMode || '?')));
-        if (desktop) rows.push(h('p', { className: 'arya-status-lane', key: 'lane-d' }, t('statusLaneDesktop')), row('d-engine', 'statusEngine', 'agent-desktop ' + (engines.versions?.['agent-desktop'] || '?')), row('d-tools', 'statusTools', desktop.toolsExposed + ' / ' + desktop.toolsTotal + ' · ' + (desktop.toolPreset || '?')), row('d-timeout', 'engineCallTimeout', String(desktop.engineCallTimeoutMs ?? '?') + ' ' + t('ms')));
-        rows.push(row('mount', 'statusMount', data.mcp?.mounted ? t('statusMounted') : t('statusNotMounted'), data.mcp?.mounted ? 'arya-ok' : 'arya-bad'));
-        for (const engine of data.mcp?.engines || []) rows.push(row('e-' + engine.package, 'statusEngines', engine.package + ' — ' + (engine.ok ? t('engineOk') : t('engineMissing') + (engine.reason ? ' (' + engine.reason + ')' : '')) + (engine.binary ? ' · ' + modeName(engine.binary) : ''), engine.ok ? 'arya-ok' : 'arya-bad'));
-        const takeover = data.takeover || {};
-        rows.push(row('takeover', 'statusTakeover', takeover.running ? t('statusTakeoverRunning') : takeover.paused ? t('statusTakeoverPaused') : t('statusTakeoverIdle'), takeover.running ? 'arya-ok' : takeover.paused ? 'arya-bad' : undefined));
-        if (takeover.paused) rows.push(h('div', { className: 'arya-statusrow', key: 'resume' }, h('b', null, t('resume')), h('span', null, h('button', { type: 'button', className: 'arya-small', disabled: !writable, onClick: onResume }, t('resume')))));
-        const elevated = engines.elevated;
-        rows.push(row('elev', 'statusElevation', elevated === true ? t('elevatedYes') : elevated === false ? t('elevatedNo') : t('elevatedUnknown'), elevated === false ? 'arya-bad' : undefined));
-        if (engines.lease) rows.push(row('lease', 'statusLease', engines.lease.present ? t('leaseYes') : t('leaseNo'), engines.lease.present ? undefined : 'arya-bad'));
-        if (data.driver) rows.push(row('driver', 'statusDriver', String(data.driver.sessionId || '?')));
-      }
-      return h('details', { className: 'arya-detail', 'data-arya-status': 'true' },
-        h('summary', null, t('statusTitle')),
-        h('div', { className: 'arya-section-head', style: { margin: '0 0 4px' } }, h('button', { type: 'button', className: 'arya-small', onClick: load }, t('statusRefresh'))),
-        error ? h('p', { role: 'status', className: 'arya-bad' }, t('statusUnavailable'))
-          : data ? h('div', { 'aria-labelledby': idPrefix + '-status-title' }, ...rows)
-          : h('p', { role: 'status' }, t('loadingSettings')));
+    function FileField({ name, model, shell, picker, accept, idp }) {
+      const [open, setOpen] = React.useState(false), [files, setFiles] = React.useState([]);
+      return h('div', { key: name, style: { padding: '2px 0 9px' } },
+        h(P.SettingsValueField, valueProps(name, model, shell, undefined, idp)),
+        picker ? h('div', { style: { ...controlsStyle, marginTop: '6px' } },
+          h(P.Menu, { open, onClose: () => setOpen(false), align: 'start', side: 'bottom', portal: true, items: files,
+            onSelect: (id) => { if (id !== '__none') model.edit(name, id); setOpen(false); },
+            anchor: h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
+              onClick: () => listFiles(picker, accept, setFiles, setOpen) }, tr('chooseFile')) })) : null);
     }
-    function SettingsCard({ scope, t, savePatch, as = 'li', idPrefix = 'arya' }) {
-      const state = React.useSyncExternalStore((listener) => scope.subscribe(listener), () => scope.getSnapshot());
-      const available = state.status === undefined ? state.value !== undefined : state.status === 'ready';
-      const writable = available && state.writable;
-      const saved = { ...defaults, ...state.value };
-      const [draft, setDraft] = React.useState(saved), [dirty, setDirty] = React.useState(false);
-      const [saving, setSaving] = React.useState(false), [message, setMessage] = React.useState(''), [tone, setTone] = React.useState('');
-      const [recording, setRecording] = React.useState(false), [recordMessage, setRecordMessage] = React.useState('');
-      const [invalid, setInvalid] = React.useState('');
-      const savedKey = JSON.stringify(Object.fromEntries(Object.keys(defaults).map((key) => [key, saved[key]])));
-      React.useEffect(() => { if (!dirty) setDraft(saved); }, [savedKey, dirty]);
-      const change = (field, value) => { const next = { ...draft, [field]: value }; setDraft(next); setDirty(Object.keys(defaults).some((key) => !equal(next[key], saved[key]))); setMessage(''); if (invalid === field) setInvalid(''); };
+    // browserExecutablePath: a menu of the browsers the host status route found on
+    // this machine (index.js detectedBrowsers), with the two-step file picker as the
+    // fallback for installs it could not locate.
+    function ExecutableField({ name, model, shell, picker, browsers, idp }) {
+      const [detected, setDetected] = React.useState(false);
+      const [open, setOpen] = React.useState(false), [files, setFiles] = React.useState([]);
+      const current = model.field(name).text;
+      const detectedItems = (browsers || []).length
+        ? browsers.map((entry) => ({ id: entry.path, label: h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '7px', maxWidth: '380px' } }, h(P.FileTypeIcon, { path: entry.path, size: 16 }), h('span', null, entry.name), h(P.PathLabel, { path: entry.path })) }))
+        : [{ id: '__none', label: tr('noDetectedBrowsers'), disabled: true }];
+      return h('div', { key: name, style: { padding: '2px 0 9px' } },
+        h(P.SettingsValueField, valueProps(name, model, shell, undefined, idp)),
+        h('div', { style: { ...controlsStyle, marginTop: '6px' } },
+          h(P.Menu, { open: detected, onClose: () => setDetected(false), align: 'start', side: 'bottom', portal: true, items: detectedItems,
+            selectedId: (browsers || []).some((entry) => entry.path === current) ? current : undefined,
+            onSelect: (id) => { model.edit(name, id); setDetected(false); },
+            anchor: h(P.Button, { variant: 'outline', size: 'sm', disabled: !shell.writable, onClick: () => setDetected((v) => !v) } , tr('detectedBrowsers')) }),
+          h(P.Menu, { open, onClose: () => setOpen(false), align: 'start', side: 'bottom', portal: true, items: files,
+            onSelect: (id) => { if (id !== '__none') model.edit(name, id); setOpen(false); },
+            anchor: h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconFolderOpenOutlineRegular, { size: 14 }), disabled: !shell.writable,
+              onClick: () => listFiles(picker, /\.(?:exe)$/i, setFiles, setOpen) }, tr('chooseFile')) })));
+    }
+    function ShortcutRow({ name, model, shell }) {
+      const [recording, setRecording] = React.useState(false), [note, setNote] = React.useState('');
+      const st = model.field(name), m = meta[name] || {};
       React.useEffect(() => {
         if (!recording) return;
-        if (!writable || saving) { setRecording(false); return; }
-        const cancel = () => { setRecording(false); setRecordMessage('recordCancelled'); };
+        if (!shell.writable) { setRecording(false); return; }
+        const cancel = () => { setRecording(false); setNote(tr('recordCancelled')); };
         const keydown = (event) => {
           if (event.isComposing) return;
           event.preventDefault(); event.stopImmediatePropagation();
           if (event.key === 'Escape' || event.code === 'Escape') { cancel(); return; }
           if (event.repeat || ['Control', 'Alt', 'Shift', 'Meta', 'OS'].includes(event.key)) return;
-          const shortcut = shortcutFromEvent(event);
-          if (!shortcut) { setRecordMessage('unsupportedKey'); return; }
-          change('stopShortcut', shortcut); setRecordMessage(''); setRecording(false);
+          const chord = shortcutFromEvent(event);
+          if (!chord) { setNote(tr('unsupportedKey')); return; }
+          model.edit(name, chord); setNote(''); setRecording(false);
         };
-        const timer = setTimeout(() => { setRecording(false); setRecordMessage('recordTimedOut'); }, 15000);
-        window.addEventListener('keydown', keydown, true); window.addEventListener('blur', cancel);
+        const timer = setTimeout(() => { setRecording(false); setNote(tr('recordTimedOut')); }, 15000);
+        window.addEventListener('keydown', keydown, true);
+        window.addEventListener('blur', cancel);
         return () => { clearTimeout(timer); window.removeEventListener('keydown', keydown, true); window.removeEventListener('blur', cancel); };
-      }, [recording, writable, saving, savedKey]);
-      const run = async (patch, success) => {
-        setSaving(true); setMessage('');
-        try { await savePatch(patch); setMessage(t(success)); setTone('success'); return true; }
-        catch (error) { setMessage(t('failed') + ': ' + String(error.message || error)); setTone('error'); return false; }
-        finally { setSaving(false); }
+      }, [recording, shell.writable]);
+      return h('div', { key: name, 'data-arya-shortcut': true, style: rowStyle },
+        h('div', { style: mainStyle },
+          h('span', { style: titleStyle }, tr(m.label || name)),
+          m.hint ? h('p', { style: descStyle }, tr(m.hint)) : null,
+          st.invalid ? h('p', { style: { ...descStyle, marginTop: '4px' } }, h(P.Tag, { tone: 'danger' }, tr(invalidKeys[name] || 'invalidChord'))) : null),
+        h('div', { style: controlsStyle },
+          h(P.ShortcutKeys, { keys: st.text ? st.text.split('+') : ['Esc'] }),
+          !st.text ? h('span', { style: descStyle }, tr('noShortcut')) : null,
+          recording ? h('span', { style: descStyle }, tr('listening')) : null,
+          h(P.Button, { variant: 'outline', size: 'sm', disabled: !shell.writable, onClick: () => { setNote(''); setRecording((v) => !v); } }, tr(recording ? 'cancelRecord' : st.text ? 'rerecord' : 'record')),
+          st.text ? h(P.Button, { variant: 'ghost', size: 'sm', disabled: !shell.writable, onClick: () => { model.edit(name, ''); setNote(''); } }, tr('clearShortcut')) : null,
+          note ? h('span', { style: descStyle }, note) : null));
+    }
+    // Status: three one-line rows, each a StateDot plus the sentence the facts files
+    // support, plus a collapsed technical disclosure. A failure is exactly one line
+    // and never touches the form.
+    function StatusSection({ status, statusError, writable, onResume, load }) {
+      const [open, setOpen] = React.useState(false), [copied, setCopied] = React.useState(false);
+      const engines = status?.engines || {}, lanes = status?.lanes || {}, takeover = status?.takeover || {}, versions = status?.engines?.versions || {};
+      const modeName = (mode) => (mode ? ((tr('statusMode') || {})[String(mode).replace(/-/g, '')] || mode) : tr('statusNone'));
+      const browser = lanes.browser, desktop = lanes.desktop;
+      const chip = (tone, text) => h(P.Tag, { tone }, text);
+      const laneRow = (key, state, sentence, chips) => h('div', { key, style: rowStyle },
+        h('div', { style: { ...mainStyle, display: 'flex', alignItems: 'baseline', gap: '9px' } },
+          h(P.StateDot, { state }), h('span', { style: titleStyle }, sentence)),
+        h('div', { style: controlsStyle }, ...(chips || [])));
+      return h('div', { 'data-arya-status': 'true' },
+        statusError && !status
+          ? h('div', { style: rowStyle }, h(P.StateDot, { state: 'error' }), h('span', { style: titleStyle }, tr('statusUnavailable')))
+          : h(React.Fragment, null,
+            laneRow('lane-browser', browser && browser.native ? 'done' : 'warning',
+              tr('statusLaneBrowser') + ' — agent-browser ' + (versions['agent-browser'] || '?') + ' · ' + (browser ? (browser.toolsProfile || '?') + ' · ' + (browser.stripMode || '?') + ' · ' + modeName(browser.nativeMode) : tr('statusUnavailable'))),
+            laneRow('lane-desktop', desktop && desktop.nativeMode !== 'shim' ? 'done' : 'warning',
+              tr('statusLaneDesktop') + ' — agent-desktop ' + (versions['agent-desktop'] || '?') + ' · ' + (desktop ? desktop.toolsExposed + ' / ' + desktop.toolsTotal + ' · ' + desktop.toolPreset + ' · ' + desktop.engineCallTimeoutMs + ' ' + tr('ms') : tr('statusUnavailable')),
+              [engines.elevated === true ? chip('success', tr('elevatedYes')) : engines.elevated === false ? chip('danger', tr('elevatedNo')) : chip('quiet', tr('elevatedUnknown')),
+               engines.lease ? (engines.lease.present ? chip('quiet', tr('leaseYes')) : chip('danger', tr('leaseNo'))) : null].filter(Boolean)),
+            laneRow('lane-session', takeover.running ? 'ongoing' : takeover.paused ? 'warning' : 'idle',
+              tr('statusLaneSession') + ' — ' + tr(takeover.running ? 'statusTakeoverRunning' : takeover.paused ? 'statusTakeoverPaused' : 'statusTakeoverIdle'),
+              takeover.paused ? [h(P.Button, { key: 'resume', variant: 'outline', size: 'sm', 'data-arya-resume': true, disabled: !writable, onClick: onResume }, tr('resume'))] : [])),
+        h(P.DisclosureRow, { icon: h(P.IconDataOutlineRegular, { size: 14 }), title: tr('technical'), open, expandable: true, onToggle: () => setOpen((v) => !v) },
+          status ? h('div', null,
+            h(P.JsonBlock, { label: 'status json', payload: status, truncatedLabel: (total) => tr('truncatedAt') + total }),
+            h(P.Button, { variant: 'ghost', size: 'sm', onClick: () => { Promise.resolve(P.writeClipboard(JSON.stringify(status, null, 2))).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); } }, copied ? tr('copied') : tr('copy')))
+            : h('span', { style: descStyle }, tr('statusUnavailable'))));
+    }
+    function useShell(props, model) {
+      // The reserved hooks compartment arrives bound as useCard (ui-slots
+      // InjectFace); the plain store member is the fallback for hosts whose slot
+      // runtime predates the compartment.
+      if (typeof props.useCard === 'function') return props.useCard((s) => s) || model.shell();
+      return React.useSyncExternalStore(props.store.subscribe, props.store.getSnapshot);
+    }
+    function SettingsPage(props) {
+      const { model, savePatch, picker, as = 'section', idPrefix = 'arya' } = props;
+      const shell = useShell(props, model);
+      const writable = shell.writable;
+      const [message, setMessage] = React.useState('');
+      const [status, setStatus] = React.useState(null), [statusError, setStatusError] = React.useState(false);
+      const load = React.useCallback(() => {
+        fetch(STATUS_PATH).then((response) => (response.ok ? response.json() : Promise.reject(Error(String(response.status)))))
+          .then((body) => { setStatus(body); setStatusError(false); })
+          .catch(() => setStatusError(true));
+      }, []);
+      React.useEffect(() => { load(); const timer = setInterval(load, 5000); return () => clearInterval(timer); }, [load]);
+      // One-shot host actions (preview, show overlay, resume) save staged drafts
+      // first, then bump the token field through the same write ladder.
+      const runAction = async (patch, successKey) => {
+        setMessage('');
+        if (model.shell().dirty) { await model.save(); if (model.shell().failed) { setMessage(tr('failed')); return; } }
+        try { await savePatch(patch); setMessage(tr(successKey)); } catch (error) { setMessage(tr('failed') + ': ' + String((error && error.message) || error)); }
       };
-      const overlayKeys = Object.keys(defaults).filter((key) => key.startsWith('progress'));
-      const applyOverlayPatch = async (patch) => {
-        const next = { ...draft, ...patch }; setDraft(next);
-        if (await run(patch, 'saved')) {
-          const base = { ...saved, ...patch };
-          setDirty(Object.keys(defaults).some((key) => !equal(next[key], base[key])));
-        } else setDirty(true);
+      const positionCustom = model.field('progressOverlayPosition').text === 'custom';
+      const browsers = status?.engines?.browsers || [];
+      const switchRow = (name, titleKey, descKey) => row(name, titleKey, descKey,
+        h(P.Switch, { checked: model.field(name).text === 'true', label: tr(titleKey), disabled: !writable, onChange: (next) => model.edit(name, String(next)) }));
+      const segRow = (name, titleKey, options, descKey) => row(name, titleKey, descKey === undefined ? (hasKey(name + 'Hint') ? name + 'Hint' : null) : descKey,
+        h(P.SegmentedControl, { id: idPrefix + '-' + name, label: tr(titleKey), value: model.field(name).text, options, disabled: !writable, onChange: (next) => model.edit(name, next) }));
+      const valueRow = (name, extra) => h(P.SettingsValueField, { key: name, ...valueProps(name, model, shell, extra, idPrefix) });
+      return h(as, { 'data-arya-settings': 'true' },
+        h(P.SettingsForm, {
+          labels: { unavailable: tr('unavailable'), readOnly: tr('readOnly'), saveFailed: tr('failed'), save: tr('save'), saving: tr('saveSaving') },
+          state: shell, onSave: () => model.save(), onDiscard: () => model.discard(),
+        },
+          h('h2', { style: { margin: '4px 0 0', fontSize: '17px', fontWeight: 600 } }, tr('title')),
+          h('p', { style: descStyle }, tr('intro')),
+          // Lane 1 — how the desktop engine drives: consent for real input, the tool
+          // surface, and the call limits.
+          head('desktop', 'desktopTitle'),
+          h('section', { 'data-arya-desktop-settings': true },
+            switchRow('headedDefault', 'headedDefault', 'headedDefaultHint'),
+            switchRow('overlayDefault', 'overlayDefault', 'overlayDefaultHint'),
+            switchRow('driverLockEnabled', 'driverLock', 'driverLockHint'),
+            segRow('toolPreset', 'toolPreset', [{ value: 'lite', label: tr('toolPresetLite') }, { value: 'lazy', label: tr('toolPresetLazy') }]),
+            valueRow('engineCallTimeoutMs'),
+            valueRow('leaseRetryBaseMs'),
+            h(FolderField, { name: 'screenshotDir', model, shell, picker, idp: idPrefix })),
+          // Lane 2 — what you see while the agent drives.
+          head('indicator', 'indicatorTitle',
+            h(P.Button, { variant: 'outline', size: 'sm', disabled: !writable, onClick: () => runAction({ previewToken: Date.now() }, 'previewed') }, tr('preview'))),
+          h('section', { 'data-arya-indicator-settings': true },
+            switchRow('indicatorEnabled', 'indicator', 'indicatorHint'),
+            switchRow('cursorIndicatorEnabled', 'cursorIndicator', 'cursorIndicatorHint'),
+            switchRow('remoteIndicatorVisible', 'remoteVisible', 'remoteVisibleHint'),
+            segRow('indicatorPosition', 'position', [{ value: 'top', label: tr('top') }, { value: 'bottom', label: tr('bottom') }], null),
+            valueRow('indicatorIdleMs'),
+            valueRow('indicatorText'),
+            valueRow('pointerLabel')),
+          // Lane 3 — the progress overlay shares position and size with the takeover.
+          head('progress', 'progressTitle',
+            h(P.Button, { variant: 'outline', size: 'sm', 'data-arya-open-progress': true, disabled: !writable, onClick: () => runAction({ progressOverlayEnabled: true, progressPreviewToken: Date.now() }, 'previewed') }, tr('openProgress'))),
+          h('section', { 'data-arya-progress-settings': true },
+            switchRow('progressOverlayEnabled', 'progressOverlay', 'progressOverlayHint'),
+            switchRow('progressOverlayLocked', 'progressLocked', 'progressLockedHint'),
+            segRow('progressOverlayMode', 'progressMode', [{ value: 'summary', label: tr('progressModeSummary') }, { value: 'source', label: tr('progressModeSource') }], 'progressModeHint'),
+            valueRow('progressOverlayOpacity'),
+            valueRow('progressOverlayWidth'),
+            valueRow('progressOverlayHeight'),
+            h(MenuField, { name: 'progressOverlayPosition', model, shell, titleKey: 'progressPosition', hintKey: null, items: [
+              { id: 'top-right', short: tr('progress_topRight'), label: tr('progress_topRight') },
+              { id: 'top-left', short: tr('progress_topLeft'), label: tr('progress_topLeft') },
+              { id: 'bottom-right', short: tr('progress_bottomRight'), label: tr('progress_bottomRight') },
+              { id: 'bottom-left', short: tr('progress_bottomLeft'), label: tr('progress_bottomLeft') },
+              { id: 'custom', short: tr('progress_custom'), label: tr('progress_custom') }] }),
+            valueRow('progressOverlayX', { disabled: !writable || !positionCustom }),
+            valueRow('progressOverlayY', { disabled: !writable || !positionCustom }),
+            h(ShortcutRow, { name: 'progressLockShortcut', model, shell })),
+          // Lane 4 — the stop contract: Esc is always live; the custom chord is
+          // recorded, never typed. Resume lives in the session row of Status.
+          head('stop', 'stop'),
+          row('esc', 'escTitle', 'stopHint', h(P.Tag, { tone: 'neutral' }, tr('escAlways'))),
+          h(ShortcutRow, { name: 'stopShortcut', model, shell }),
+          // Lane 5 — the web lane: measured profile counts, native pickers for every
+          // path, and the honest engine notes (restart, domains-vs-profile).
+          head('browser', 'browserTitle'),
+          h('section', { 'data-arya-browser-settings': true },
+            subhead('web-tools', 'webToolsGroup'),
+            h(MenuField, { name: 'browserTools', model, shell, titleKey: 'browserTools', hintKey: 'browserToolsHint', items: [
+              ['core', 33], ['network', 9], ['state', 27], ['debug', 40], ['tabs', 13], ['react', 8], ['mobile', 15], ['webmcp', 4], ['all', 160],
+            ].map(([id, count]) => ({ id, short: id + ' · ' + count, label: id + ' · ' + count + ' ' + tr('toolsUnit') })) }),
+            segRow('browserToolFlags', 'browserFlags', [{ value: 'strip', label: tr('browserFlagsStrip') }, { value: 'lean', label: tr('browserFlagsLean') }, { value: 'off', label: tr('browserFlagsOff') }], 'browserFlagsHint'),
+            subhead('web-browser', 'webBrowserGroup'),
+            switchRow('browserHeaded', 'browserHeaded', 'browserHeadedHint'),
+            h(FolderField, { name: 'browserProfile', model, shell, picker, idp: idPrefix }),
+            valueRow('browserSession'),
+            valueRow('browserCdp'),
+            h(FileField, { name: 'browserStateFile', model, shell, picker, accept: /\.json$/i, idp: idPrefix }),
+            h(ExecutableField, { name: 'browserExecutablePath', model, shell, picker, browsers, idp: idPrefix }),
+            subhead('web-network', 'webNetworkGroup'),
+            valueRow('browserAllowedDomains'),
+            valueRow('browserNamespace'),
+            valueRow('browserIdleTimeout'),
+            h(FileField, { name: 'browserCaCert', model, shell, picker, accept: /\.(?:pem|crt)$/i, idp: idPrefix }),
+            switchRow('browserUseSystemCa', 'browserUseSystemCa', 'browserUseSystemCaHint'),
+            valueRow('browserDefaultTimeoutMs'),
+            valueRow('browserConfirmActions'),
+            h('p', { style: descStyle }, tr('browserRestart'))),
+          // Lane 6 — what is actually running, from the process that started it.
+          head('status', 'statusTitle',
+            h(P.Button, { variant: 'ghost', size: 'sm', icon: h(P.IconRefreshOutlineRegular, { size: 14 }), onClick: load }, tr('statusRefresh'))),
+          h(StatusSection, { status, statusError, writable, load, onResume: () => runAction({ resumeToken: Date.now() }, 'resumed') }),
+          message ? h('p', { key: 'message', role: 'status', 'aria-live': 'polite', style: descStyle }, message) : null));
+    }
+    // Hosts without the primitives catalog keep a working plain form over the same
+    // save ladder — the settings stay editable and the chat rows never depend on it.
+    function LegacyCard({ scope, savePatch, as = 'li' }) {
+      const state = React.useSyncExternalStore((fn) => scope.subscribe(fn), () => scope.getSnapshot());
+      if ((state.status !== undefined && state.status !== 'ready') || !state.value) return h(as, { 'data-arya-unavailable': true }, h('p', { role: 'status' }, tr(state.status === 'loading' ? 'loadingSettings' : 'notLoaded')), h('button', { type: 'button', onClick: () => window.location.reload() }, tr('reloadSettings')));
+      const saved = { ...defaults, ...state.value };
+      const keys = Object.keys(defaults).filter((key) => !/Token$/.test(key));
+      const [draft, setDraft] = React.useState(saved);
+      const dirty = keys.some((key) => !equal(draft[key], saved[key]));
+      const [message, setMessage] = React.useState('');
+      const change = (key, value) => setDraft((prev) => ({ ...prev, [key]: value }));
+      const save = () => {
+        const patch = {};
+        for (const key of keys) if (!equal(draft[key], saved[key])) patch[key] = draft[key];
+        savePatch(patch).then(() => setMessage(tr('saved'))).catch((error) => setMessage(tr('failed') + ': ' + String((error && error.message) || error)));
       };
-      const applyOverlaySwitch = (field, value) => applyOverlayPatch({ [field]: value });
-      const openProgress = () => applyOverlayPatch({ ...Object.fromEntries(overlayKeys.map((key) => [key, draft[key]])), progressOverlayEnabled: true, progressPreviewToken: Date.now() });
-      // B7: one validator table; the first failure names its field in the status
-      // line, marks that control, and focuses it. The old single sentence made
-      // issue #1's reporter hunt through ten fields for one bad path.
-      const validators = [
-        ['indicatorText', (v) => !String(v ?? '').trim() || String(v).length > 120 || /[\r\n\x00-\x1f]/.test(String(v)), 'invalidText'],
-        ['pointerLabel', (v) => !String(v ?? '').trim() || String(v).trim().length > 16 || /[\r\n\x00-\x1f]/.test(String(v)), 'invalidLabel'],
-        ['indicatorIdleMs', (v) => !Number.isInteger(v) || v < 200 || v > 3000, 'invalidDelay'],
-        ['browserSession', (v) => !!v && !/^[\p{L}\p{N}_-]+$/u.test(v), 'invalidName'],
-        ['browserNamespace', (v) => !!v && !/^[\p{L}\p{N}_-]+$/u.test(v), 'invalidName'],
-        ['browserCdp', (v) => !!v && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(v), 'invalidCdp'],
-        ['browserStateFile', (v) => !!v && !/^(?:[A-Za-z]:[\\/]|\/)/.test(v), 'invalidPath'],
-        ['browserExecutablePath', (v) => !!v && !/^(?:[A-Za-z]:[\\/]|\/)/.test(v), 'invalidPath'],
-        ['browserCaCert', (v) => !!v && !/^(?:[A-Za-z]:[\\/]|\/)/.test(v), 'invalidPath'],
-        ['screenshotDir', (v) => !!v && !/^(?:[A-Za-z]:[\\/]|\/)/.test(v), 'invalidPath'],
-        ['browserIdleTimeout', (v) => !!v && !/^(?:0|[0-9]+(?:\.[0-9]+)?(?:ms|s|m|h|d)?)$/i.test(v), 'invalidDuration'],
-        ['browserAllowedDomains', (v) => String(v ?? '').split(/[,\s]+/).filter(Boolean).some((d) => !/^(?:\*\.)?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(d)), 'invalidDomains'],
-        ['browserConfirmActions', (v) => String(v ?? '').split(/[,\s]+/).filter(Boolean).some((a) => !/^[A-Za-z0-9_:*.-]+$/.test(a)), 'invalidActions'],
-        ['browserDefaultTimeoutMs', (v) => !Number.isInteger(v) || (v !== 0 && (v < 1000 || v > 600000)), 'invalidTimeout'],
-        ['engineCallTimeoutMs', (v) => !Number.isInteger(v) || v < 10000 || v > 300000, 'invalidCallTimeout'],
-        ['leaseRetryBaseMs', (v) => !Number.isInteger(v) || (v !== 0 && (v < 100 || v > 10000)), 'invalidLeaseBase'],
-      ];
-      const save = async () => {
-        for (const [field, bad, why] of validators) {
-          if (!bad(draft[field])) continue;
-          setInvalid(field);
-          setMessage(t(field) + t('invalidJoin') + t(why));
-          setTone('error');
-          requestAnimationFrame(() => { try { document.getElementById(idPrefix + '-' + field)?.focus(); } catch {} });
-          return;
-        }
-        setInvalid('');
-        const patch = Object.fromEntries(Object.keys(defaults).filter((key) => !equal(draft[key], saved[key])).map((key) => [key, draft[key]]));
-        if (await run(patch, 'saved')) setDirty(false);
-      };
-      const disabled = saving || !writable || recording, indicatorDisabled = disabled || !draft.indicatorEnabled;
-      const invalidProps = (field) => ({ 'data-arya-invalid': invalid === field || undefined, 'aria-invalid': invalid === field ? true : undefined });
-      const radio = (field, value, label) => h('label', { key: value }, h('input', { type: 'radio', name: idPrefix + '-' + field, id: idPrefix + '-' + field + '-' + value, value, checked: draft[field] === value, disabled: indicatorDisabled, onChange: () => change(field, value) }), label);
-      const button = (label, props) => h('button', { type: 'button', ...props }, t(label));
-      const info = (key) => h(Info, { id: idPrefix + '-tip-' + key, label: t('moreInfo'), text: t(key) });
-      const head = (id, title, hint, ...end) => h('div', { className: 'arya-section-head' }, h('h3', { id }, t(title)), hint && info(hint), end.length > 0 && h('div', { className: 'arya-end' }, ...end));
-      const item = (art, ...main) => h('div', { className: 'arya-item' }, art, h('div', { className: 'arya-item-main' }, ...main));
-      const title = (text, hint, props) => { const cut = /[\u2e80-\u9fff\uff00-\uffef]$/.test(text) ? text.length - 2 : text.lastIndexOf(' ') + 1; return h(props?.htmlFor ? 'label' : 'span', { className: 'arya-item-title', ...props }, text.slice(0, cut), h('span', { className: 'arya-nowrap' }, text.slice(cut), hint && info(hint))); };
-      const toggle = (field, label, locked) => h('input', { id: idPrefix + '-' + field, type: 'checkbox', role: 'switch', 'aria-label': t(label), checked: draft[field], disabled: disabled || locked, onChange: (e) => ['progressOverlayEnabled', 'progressOverlayLocked'].includes(field) ? applyOverlaySwitch(field, e.target.checked) : change(field, e.target.checked) });
-      const switchItem = (field, label, hint, art, locked) => item(h('label', { className: 'arya-art', htmlFor: idPrefix + '-' + field, 'aria-hidden': true }, art), title(t(label), hint, { htmlFor: idPrefix + '-' + field }), toggle(field, label, locked));
-      const field = (label, control) => h('div', { className: 'arya-field' }, label, control);
-      const text = (field_, placeholder, maxLength) => field(title(t(field_), null, { htmlFor: idPrefix + '-' + field_ }), h('input', { id: idPrefix + '-' + field_, type: 'text', maxLength, placeholder, value: draft[field_], disabled, ...invalidProps(field_), onChange: (e) => change(field_, e.target.value) }));
-      const number = (field_, min, max, step) => field(title(t(field_), field_ + 'Hint', { htmlFor: idPrefix + '-' + field_ }), h('div', { className: 'arya-number' }, h('input', { id: idPrefix + '-' + field_, type: 'number', min, max, step, value: draft[field_], disabled, ...invalidProps(field_), onChange: (e) => change(field_, Number(e.target.value)) })));
-      const keycap = (key, label) => h('kbd', { className: 'arya-key', key }, label);
-      const shortcutKeys = recording ? [h('span', { key: 'listen' }, t('listening')), h('small', { key: 'cancel' }, t('listeningCancel'))]
-        : draft.stopShortcut ? draft.stopShortcut.split('+').flatMap((key, i) => i ? [h('span', { className: 'arya-plus', key: '+' + i }, ' + '), keycap(i, key)] : [keycap(i, key)])
-        : [keycap('esc', 'Esc'), h('small', { key: 'default' }, t('noShortcut').slice(3))];
-      return h(as, { 'data-arya-settings': 'true' }, h('style', null, css),
-        h('header', { className: 'arya-header' }, h('h2', null, t('title')), h('p', null, t('intro'))),
-        // Lane 1 — desktop: how the engine drives, and the call limits that used to
-        // be compiled into the adapter.
-        h('section', { className: 'arya-section', 'data-arya-desktop-settings': true, 'aria-labelledby': idPrefix + '-desktop-title' },
-          head(idPrefix + '-desktop-title', 'desktopTitle', 'desktopHint'),
-          h('div', { className: 'arya-grid' },
-            switchItem('headedDefault', 'headedDefault', 'headedDefaultHint', arts.keyboard(draft.headedDefault)),
-            switchItem('overlayDefault', 'overlayDefault', 'overlayDefaultHint', arts.cursor(draft.overlayDefault)),
-            switchItem('driverLockEnabled', 'driverLock', 'driverLockHint', arts.shield(draft.driverLockEnabled)),
-            field(title(t('toolPreset'), 'toolPresetHint', { htmlFor: idPrefix + '-toolPreset' }), h('select', { id: idPrefix + '-toolPreset', value: draft.toolPreset, disabled, onChange: (e) => change('toolPreset', e.target.value) }, h('option', { value: 'lite' }, t('toolPresetLite')), h('option', { value: 'lazy' }, t('toolPresetLazy'))))),
-          h('details', { className: 'arya-detail' }, h('summary', null, t('advanced')),
-            h('div', { className: 'arya-fields' },
-              number('engineCallTimeoutMs', 10000, 300000, 1000),
-              number('leaseRetryBaseMs', 0, 10000, 100),
-              text('screenshotDir', 'C:\\Users\\you\\Pictures\\arya', 400)))),
-        // Lane 2 — the takeover indicator.
-        h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-indicator-title' },
-          head(idPrefix + '-indicator-title', 'indicatorTitle', 'indicatorHint', button('preview', { className: 'arya-small', disabled: disabled || dirty || (!draft.indicatorEnabled && !draft.cursorIndicatorEnabled), onClick: () => run({ previewToken: Date.now() }, 'previewed'), title: dirty ? t('previewHint') : undefined })),
-          h('div', { className: 'arya-grid' },
-            switchItem('indicatorEnabled', 'indicator', 'indicatorHint', arts.indicator(draft.indicatorEnabled, draft.indicatorPosition === 'bottom')),
-            switchItem('cursorIndicatorEnabled', 'cursorIndicator', 'cursorIndicatorHint', arts.cursor(draft.cursorIndicatorEnabled))),
-          h('details', { className: 'arya-detail' }, h('summary', null, t('appearance')),
-            h('div', { className: 'arya-fields' },
-              field(title(t('position'), null, { id: idPrefix + '-position-label' }), h('div', { className: 'arya-segment', role: 'radiogroup', 'aria-labelledby': idPrefix + '-position-label' }, radio('indicatorPosition', 'top', t('top')), radio('indicatorPosition', 'bottom', t('bottom')))),
-              field(title(t('delay'), 'delayHint', { htmlFor: idPrefix + '-delay' }), h('div', { className: 'arya-number' }, h('input', { id: idPrefix + '-delay', type: 'number', min: 200, max: 3000, step: 100, value: draft.indicatorIdleMs, disabled: indicatorDisabled, ...invalidProps('indicatorIdleMs'), onChange: (e) => change('indicatorIdleMs', Number(e.target.value)) }), h('span', null, t('ms')))),
-              field(title(t('text'), null, { htmlFor: idPrefix + '-text' }), h('input', { id: idPrefix + '-text', type: 'text', maxLength: 120, value: draft.indicatorText, disabled: indicatorDisabled, ...invalidProps('indicatorText'), onChange: (e) => change('indicatorText', e.target.value) })),
-              field(title(t('cursorLabel'), 'cursorLabelHint', { htmlFor: idPrefix + '-pointerLabel' }), h('input', { id: idPrefix + '-pointerLabel', type: 'text', maxLength: 16, value: draft.pointerLabel, disabled: disabled || !draft.cursorIndicatorEnabled, ...invalidProps('pointerLabel'), onChange: (e) => change('pointerLabel', e.target.value) })),
-              field(title(t('remoteVisible'), 'remoteVisibleHint', { htmlFor: idPrefix + '-remoteIndicatorVisible' }), toggle('remoteIndicatorVisible', 'remoteVisible'))))),
-        // Lane 3 — the progress overlay, now with its content mode reachable.
-        h('section', { className: 'arya-section', 'data-arya-progress-settings': true, 'aria-labelledby': idPrefix + '-progress-title' },
-          head(idPrefix + '-progress-title', 'progressTitle', null, button('openProgress', { 'data-arya-open-progress': true, className: 'arya-small', disabled, onClick: openProgress })),
-          h('div', { className: 'arya-grid' }, switchItem('progressOverlayEnabled', 'progressOverlay', 'progressOverlayHint', arts.progress(draft.progressOverlayEnabled)), switchItem('progressOverlayLocked', 'progressLocked', 'progressLockedHint', arts.lock(draft.progressOverlayLocked))),
-          h('details', { className: 'arya-detail', 'data-arya-progress-details': true }, h('summary', null, t('progressAppearance')),
-            h('p', { className: 'arya-hint' }, t('progressSync')),
-            h('div', { className: 'arya-fields' },
-              field(title(t('progressMode'), 'progressModeHint', { id: idPrefix + '-progressMode-label' }), h('div', { className: 'arya-segment', role: 'radiogroup', 'aria-labelledby': idPrefix + '-progressMode-label' },
-                ...[['summary', 'progressModeSummary'], ['source', 'progressModeSource']].map(([value, label]) => h('label', { key: value }, h('input', { type: 'radio', name: idPrefix + '-progressOverlayMode', id: idPrefix + '-progressOverlayMode-' + value, value, checked: draft.progressOverlayMode === value, disabled, onChange: () => change('progressOverlayMode', value) }), t(label))))),
-              ...[['progressOverlayOpacity', 'progressOpacity', 20, 100], ['progressOverlayWidth', 'progressWidth', 240, 1600], ['progressOverlayHeight', 'progressHeight', 160, 1600]].map(([key, label, min, max]) => field(title(t(label), null, { htmlFor: idPrefix + '-' + key }), h('input', { id: idPrefix + '-' + key, type: 'number', min, max, value: draft[key], disabled, onChange: (e) => change(key, Number(e.target.value)) }))),
-              field(title(t('progressPosition'), null, { htmlFor: idPrefix + '-progressOverlayPosition' }), h('select', { id: idPrefix + '-progressOverlayPosition', value: draft.progressOverlayPosition, disabled, onChange: (e) => change('progressOverlayPosition', e.target.value) }, ...['top-right', 'top-left', 'bottom-right', 'bottom-left', 'custom'].map((key, index) => h('option', { key, value: key }, t(['progress_topRight', 'progress_topLeft', 'progress_bottomRight', 'progress_bottomLeft', 'progress_custom'][index]))))),
-              ...[['progressOverlayX', 'progressX'], ['progressOverlayY', 'progressY']].map(([key, label]) => field(title(t(label), null, { htmlFor: idPrefix + '-' + key }), h('input', { id: idPrefix + '-' + key, type: 'number', min: -32768, max: 32767, value: draft[key], disabled: disabled || draft.progressOverlayPosition !== 'custom', onChange: (e) => change(key, Number(e.target.value)) }))),
-              field(title(t('progressShortcut'), 'progressShortcutHint', { htmlFor: idPrefix + '-progressLockShortcut' }), h('input', { id: idPrefix + '-progressLockShortcut', type: 'text', value: draft.progressLockShortcut, placeholder: 'Ctrl+Alt+P', maxLength: 50, disabled, onChange: (e) => change('progressLockShortcut', e.target.value) }))))),
-        // Lane 4 — stop and resume: Esc always works, a custom chord is optional,
-        // and a stopped series is resumed from here (the previewed hint says so).
-        h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-stop-title' },
-          head(idPrefix + '-stop-title', 'stop', null,
-            button('resume', { 'data-arya-resume': true, className: 'arya-small', disabled, title: t('resumeHint'), onClick: () => run({ resumeToken: Date.now() }, 'resumed') }),
-            button('clearShortcut', { className: 'arya-small', disabled: disabled || !draft.stopShortcut, onClick: () => { change('stopShortcut', ''); setRecordMessage(''); } })),
-          h('div', { className: 'arya-grid' },
-            item(h('div', { className: 'arya-art', 'aria-hidden': true }, arts.esc()), title(t('escTitle'), 'stopHint'), h('span', { className: 'arya-caption' }, t('escAlways'))),
-            h('div', { className: 'arya-item', 'data-arya-shortcut': 'true' },
-              h('output', { className: 'arya-art arya-shortcut-value', 'data-recording': recording, 'aria-live': 'polite', 'aria-label': t('extraStop') }, ...shortcutKeys),
-              h('div', { className: 'arya-item-main' }, title(t('extraStop'), 'shortcutHint'),
-                button(recording ? 'cancelRecord' : draft.stopShortcut ? 'rerecord' : 'record', { className: 'arya-small', disabled: saving || !writable, onClick: () => { setRecordMessage(''); setRecording(!recording); } })))),
-          recordMessage && h('p', { role: 'status', className: 'arya-hint' }, t(recordMessage))),
-        // Lane 5 — the web lane, grouped by what each block actually changes.
-        h('section', { className: 'arya-section', 'data-arya-browser-settings': true, 'aria-labelledby': idPrefix + '-browser-title' },
-          head(idPrefix + '-browser-title', 'browserTitle', 'browserRestart'),
-          h('p', { className: 'arya-subhead' }, t('webToolsGroup')),
-          h('div', { className: 'arya-grid' },
-            field(title(t('browserTools'), 'browserToolsHint', { htmlFor: idPrefix + '-browserTools' }), h('select', { id: idPrefix + '-browserTools', value: draft.browserTools, disabled, onChange: (e) => change('browserTools', e.target.value) }, ...['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'webmcp', 'all'].map((key) => h('option', { key, value: key }, key)))),
-            field(title(t('browserFlags'), 'browserFlagsHint', { htmlFor: idPrefix + '-browserToolFlags' }), h('select', { id: idPrefix + '-browserToolFlags', value: draft.browserToolFlags, disabled, onChange: (e) => change('browserToolFlags', e.target.value) }, ...[['strip', 'browserFlagsStrip'], ['lean', 'browserFlagsLean'], ['off', 'browserFlagsOff']].map(([value, label]) => h('option', { key: value, value }, t(label)))))),
-          h('p', { className: 'arya-subhead' }, t('webBrowserGroup')),
-          h('div', { className: 'arya-grid' },
-            switchItem('browserHeaded', 'browserHeaded', 'browserHeadedHint', arts.browser(draft.browserHeaded))),
-          h('div', { className: 'arya-fields arya-wide' },
-            text('browserProfile', 'Default', 200),
-            text('browserSession', 'arya', 64),
-            text('browserCdp', 'http://127.0.0.1:9222', 200),
-            text('browserStateFile', '', 400),
-            text('browserExecutablePath', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 400)),
-          h('p', { className: 'arya-subhead' }, t('webNetworkGroup')),
-          h('div', { className: 'arya-fields arya-wide' },
-            text('browserAllowedDomains', 'example.com, *.example.org', 400),
-            text('browserNamespace', 'arya', 64),
-            text('browserIdleTimeout', '30m', 32),
-            text('browserCaCert', 'C:\\certs\\internal-ca.pem', 400),
-            number('browserDefaultTimeoutMs', 0, 600000, 1000),
-            text('browserConfirmActions', 'flow_write:deploy, plugin:vault:credential.read', 400),
-            field(title(t('browserUseSystemCa'), 'browserUseSystemCaHint', { htmlFor: idPrefix + '-browserUseSystemCa' }), toggle('browserUseSystemCa', 'browserUseSystemCa'))),
-          h('p', { className: 'arya-hint' }, t('browserRestart'))),
-        // Lane 6 — what is actually running, from the process that started it.
-        h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-status-title' },
-          h('h3', { id: idPrefix + '-status-title' }, t('statusTitle')),
-          h(StatusPanel, { t, idPrefix, writable, onResume: () => run({ resumeToken: Date.now() }, 'resumed') })),
-        !writable && h('p', { role: 'status', 'data-tone': 'error' }, t(available ? 'unavailable' : 'notLoaded')),
-        h('footer', { className: 'arya-footer' }, h('span', { className: 'arya-status', role: 'status', 'aria-live': 'polite', 'data-tone': message ? tone : undefined }, message || t(dirty ? 'dirty' : 'clean')),
-          h('div', { className: 'arya-actions' }, button('discard', { disabled: !dirty || saving || recording, onClick: () => { setDraft(saved); setDirty(false); setMessage(''); setRecordMessage(''); setInvalid(''); } }), button('save', { className: 'arya-primary', disabled: !dirty || disabled, onClick: save }))));
+      return h(as, { 'data-arya-settings': 'true' },
+        h('h2', null, tr('title')), h('p', null, tr('intro')),
+        ...keys.map((key) => h('label', { key, style: { display: 'flex', gap: '10px', alignItems: 'center', padding: '4px 0' } },
+          h('span', { style: { minWidth: '240px' } }, hasKey(key) ? tr(key) : key),
+          typeof defaults[key] === 'boolean' ? h('input', { type: 'checkbox', checked: !!draft[key], onChange: (event) => change(key, event.target.checked) })
+            : typeof defaults[key] === 'number' ? h('input', { type: 'number', value: draft[key], onChange: (event) => change(key, Number(event.target.value)) })
+              : h('input', { type: 'text', size: 40, value: draft[key], onChange: (event) => change(key, event.target.value) }))),
+        h('div', { style: { display: 'flex', gap: '8px', marginTop: '12px' } },
+          h('button', { type: 'button', disabled: !dirty, onClick: () => { setDraft(saved); setMessage(''); } }, tr('discard')),
+          h('button', { type: 'button', disabled: !dirty, onClick: save }, tr('save'))),
+        message ? h('p', { role: 'status' }, message) : null);
+    }
+    function Card(props) {
+      if (typeof props.t === 'function') tr = props.t;
+      if (props.view === 'summary') return h('span', { 'data-arya-summary': true }, tr('pluginDescription'), ' ', h('span', { style: { color: 'var(--dsw-alias-label-link,#71a7ff)' } }, tr('openSettings')));
+      if (!P || !props.model) return h(LegacyCard, props);
+      return h(SettingsPage, props);
     }
     // Chat rows, keyed by wire tool name per lane (AGENTS.md rule 9). The desktop
     // table used to cover 16 of the 28 exposed tools and the web table 29 names;
@@ -655,40 +723,83 @@ window.__ModuleLoader__.load({
       ctx.effect(() => ctx.locale.register(NS, dictionaries));
       registerActivity(ctx);
       const t = ctx.locale.bind ? ctx.locale.bind(NS) : (key) => key;
+      tr = t;
       let mounted = false;
       let modernRemote;
+      // The native dialogs (ui-directory-picker-native; owner always allowed).
+      // Captured separately from the mount triggers on purpose: the picker must not
+      // gate the mount, or hosts without that compartment lose the settings page
+      // entirely — without a picker the path fields simply stay typed by hand.
+      // Both paths must be declared, exactly as ui-workspace's own required list
+      // does ('remote' AND 'remote.directoryPicker'): 'remote' is the service that
+      // resolves and fires the callback, the qualified subpath whitelists the read —
+      // reading .directoryPicker with only 'remote' declared throws "cannot get
+      // property remote.directoryPicker without inject", and one crashed render
+      // abdicates the entry for good.
+      let picker;
+      ctx.inject(['remote', 'remote.directoryPicker'], (owner) => { picker = owner.remote.directoryPicker; return () => { picker = undefined; }; });
       ctx.inject(['remote', 'remote.settings'], (owner) => { modernRemote = owner.remote.settings; return () => { modernRemote = undefined; }; });
       const mount = (scope, owner, namespace) => {
         if (mounted) return; mounted = true;
         const connection = typeof scope.mutate === 'function' ? undefined : owner.connection;
-        const savePatch = async (patch) => {
+        // The four-host write ladder, op-shaped now: the settings kit stages
+        // set/unset ops and fences them with a revision, so the ladder takes ops.
+        // Oldest hosts only have per-field set — an unset becomes the default.
+        const writeOps = async (ops, expectedRevision) => {
           const current = scope.getSnapshot();
           if (current.status !== undefined && current.status !== 'ready') throw Error(t('notLoaded'));
+          const revision = expectedRevision === undefined ? current.revision : expectedRevision;
           if (modernRemote && owner.configForms) {
-            const response = await modernRemote.mutate(namespace, Object.entries(patch).map(([field, value]) => ({ op: 'set', path: [field], value })), current.revision);
+            const response = await modernRemote.mutate(namespace, ops, revision);
             if (response.ok) owner.configForms.describe().acceptView(response.value);
             else await owner.configForms.describe().load();
             if (!response.ok) throw Error(response.error?.message || response.error?.code || t('persistFailed'));
           } else if (typeof scope.mutate === 'function') {
-            const accepted = await scope.mutate(Object.entries(patch).map(([field, value]) => ({ op: 'set', path: [field], value })), scope.getSnapshot().revision);
+            const accepted = await scope.mutate(ops, scope.getSnapshot().revision);
             if (!accepted) throw Error(t('persistFailed'));
           } else if (connection?.api?.settings?.mutate) {
             const snapshot = scope.getSnapshot();
-            const response = await connection.api.settings.mutate({ ns: namespace, ops: Object.entries(patch).map(([field, value]) => ({ op: 'set', path: [field], value })), ...(snapshot.revision === undefined ? {} : { expectedRevision: snapshot.revision }) });
+            const response = await connection.api.settings.mutate({ ns: namespace, ops, ...(snapshot.revision === undefined ? {} : { expectedRevision: snapshot.revision }) });
             if (!response.result?.ok) throw Error(response.result?.message || response.result?.error || t('persistFailed'));
             await scope.load();
           } else {
-            for (const [field, value] of Object.entries(patch)) await scope.set(field, value);
+            for (const op of ops) await scope.set(op.path[0], op.op === 'set' ? op.value : defaults[op.path[0]]);
           }
           const value = scope.getSnapshot().value ?? {};
-          if (Object.entries(patch).some(([key, next]) => !equal(value[key], next))) throw Error(t('persistFailed'));
+          for (const op of ops) {
+            if (op.op === 'set' && !equal(value[op.path[0]], op.value)) throw Error(t('persistFailed'));
+            if (op.op === 'unset' && value[op.path[0]] !== undefined && !equal(value[op.path[0]], defaults[op.path[0]])) throw Error(t('persistFailed'));
+          }
         };
-        ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'computer-use', order: 16, label: () => t('nav'), locale: NS, inject: () => ({ scope, savePatch, as: 'section', idPrefix: 'arya-page' }) }, Card));
-        ctx.slots.inject('plugins.item', () => ctx.slots.register({ name: 'plugins.item', id: 'arya-computer-use', order: 30, label: () => t('nav'), locale: NS, inject: () => ({ scope, savePatch, as: 'section', idPrefix: 'arya-plugin' }) }, Card));
-        ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({ name: 'settings.plugin.item', id: 'arya-computer-use', order: 30, locale: NS, inject: () => ({ scope, savePatch }) }, Card));
+        const savePatch = async (patch) => writeOps(Object.entries(patch).map(([field, value]) => ({ op: 'set', path: [field], value })));
+        // The host model for this namespace: staged drafts, per-field validation,
+        // Overridden tags and revision-fenced writes come from it; writeOps stays
+        // its write scope. Without the catalog there is no model and Card renders
+        // the plain form over savePatch instead.
+        const model = P ? new P.SettingsFormModel({
+          getSnapshot: () => scope.getSnapshot(),
+          subscribe: (listener) => (typeof scope.subscribe === 'function' ? scope.subscribe(listener) : () => {}),
+          mutate: async (ops, expectedRevision) => { try { await writeOps(ops, expectedRevision); return true; } catch { return false; } },
+        }, specs) : null;
+        if (model) {
+          // The kit exposes edit/resetField/discard ONLY through actions()
+          // (form-model.ts:274); save IS an instance method (:300) so it stays
+          // untouched and runAction can await it. Our controls call these on the
+          // model object, so bind the three as own members. Unbound they threw
+          // `model.edit is not a function` on every switch/menu/value edit, and
+          // the SettingsForm unmount cleanup (onDiscard → model.discard) threw
+          // through the host slot that renders the modal.
+          const actions = model.actions();
+          for (const key of ['edit', 'resetField', 'discard']) model[key] = actions[key];
+        }
+        const store = model ? model.bind(() => model.shell()) : null;
+        const face = (asTag, idPrefix) => () => ({ scope, savePatch, model, store, picker, as: asTag, idPrefix, ...(model ? { hooks: { card: store } } : {}) });
+        ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'computer-use', order: 16, label: () => t('nav'), locale: NS, inject: face('section', 'arya-page') }, Card));
+        ctx.slots.inject('plugins.item', () => ctx.slots.register({ name: 'plugins.item', id: 'arya-computer-use', order: 30, label: () => t('nav'), locale: NS, inject: face('section', 'arya-plugin') }, Card));
+        ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({ name: 'settings.plugin.item', id: 'arya-computer-use', order: 30, locale: NS, inject: face('li', 'arya') }, Card));
       };
       ctx.inject(['configForms'], (owner) => mount(owner.configForms.get('arya-computer-use'), owner, 'arya-computer-use'));
-      ctx.inject(['settingsScope', 'connection', 'remote'], (owner) => mount(owner.settingsScope.bind({ namespace: 'arya-computer-use' }), owner, 'arya-computer-use'));
+      ctx.inject(['settingsScope', 'connection'], (owner) => mount(owner.settingsScope.bind({ namespace: 'arya-computer-use' }), owner, 'arya-computer-use'));
     }
     return { apply, inject: ['slots', 'locale'] };
   },

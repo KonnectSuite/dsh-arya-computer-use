@@ -561,7 +561,7 @@ export async function apply(ctx, config) {
       driver: activity?.active ? { sessionId: activity.sessionId, turn: activity.turn } : null,
       mcp: mcpStatus,
       lanes: { browser: laneFacts('info-browser.json'), desktop: laneFacts('info-desktop.json') },
-      engines: { versions: engineVersions, elevated: typeof process.windowsElevated === 'boolean' ? process.windowsElevated : null, lease },
+      engines: { versions: engineVersions, elevated: typeof process.windowsElevated === 'boolean' ? process.windowsElevated : null, lease, browsers: detectedBrowsers() },
       state: readJson(runtime.stateFile),
     });
   }
@@ -573,6 +573,29 @@ export async function apply(ctx, config) {
 function isLoopbackAddress(address) {
   if (typeof address !== 'string') return false;
   return address === '::1' || address === '::ffff:7f00:1' || address.startsWith('127.') || address.startsWith('::ffff:127.');
+}
+/** Browsers installed in their standard locations on this machine. The settings
+ * UI offers these as a menu for browserExecutablePath — the host has no OS file
+ * dialog for a single file, so a probe of the known install roots beats typing
+ * a path blind. Read-only: existsSync only. */
+function detectedBrowsers() {
+  const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA].filter(Boolean);
+  const found = [];
+  for (const [name, relative] of [
+    ['Edge', 'Microsoft\\Edge\\Application\\msedge.exe'],
+    ['Chrome', 'Google\\Chrome\\Application\\chrome.exe'],
+    ['Brave', 'BraveSoftware\\Brave-Browser\\Application\\brave.exe'],
+    ['Chromium', 'Chromium\\Application\\chrome.exe'],
+  ]) {
+    for (const base of roots) {
+      const path = join(base, relative);
+      if (existsSync(path)) {
+        found.push({ name, path });
+        break;
+      }
+    }
+  }
+  return found;
 }
 function sendJson(res, code, body) {
   res.writeHead(code, {

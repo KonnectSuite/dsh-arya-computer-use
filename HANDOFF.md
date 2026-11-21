@@ -523,7 +523,17 @@ closed both tabs it created through the window's own Close Tab affordance.
   radius + the measured A/B posted (comment 7024658122). The issue is left **OPEN** by the
   maintainer's instruction — close only with explicit approval or after 5 days (2026-11-24).
 
-## Executed — 1.0.13 engine update + settings UI (2026-11-20/21)
+## Executed — 1.0.13 engine update + settings UI (2026-11-20/21) — WITHDRAWN before release
+
+**Withdrawal (2026-11-21).** The maintainer rejected the settings UI — user said (m01474):
+"dont release 1.0.13 yet. i dont approve the Settings UI. what you added as an 'Overhaul' was
+trash. you match the strategy or theme. manual typing on things that can use file exployer,
+etc. this is a entry level design." Part A (the engine update) and the functional Part B fixes
+stand verbatim; the page itself is rebuilt on the host's own kit as **1.0.14** (next section).
+The tarball had already reached npm mid-script, so: `latest` moved back to 1.0.12, 1.0.13 is
+deprecated ("withdrawn by the maintainer before release — settings UI rejected; install
+1.0.12"), and `npm unpublish` is refused for granular tokens (E403, two-factor bypass) — the
+full withdrawal needs the account owner. 1.0.13 is burned; never re-use that version.
 
 The plan below the old heading was drafted, reviewed and HELD; the maintainer then chose to
 **un-hold it now** — issue #2 stays open until 2026-11-24 (comment 7024658122) on purpose:
@@ -683,3 +693,89 @@ gate sequence and runs after this commit. The plan text itself lives in git (`c6
 - The production AryaCode profile stays on the previous version until the catalogue reaches it.
 - The headed-mode gap (`client.js:413-422` note) and live engine diagnostics beyond B8's spike.
 - The shared-control-dir mirror (two hosts, one machine) — a design question for a later release.
+
+## Executed — 1.0.14: the settings page rebuilt on the host kit (2026-11-21)
+
+Part A and the functional fixes carry over from the 1.0.13 record unchanged; this section is
+the settings UI rebuilt to the maintainer's rejection above. The design contract lives in
+`KonnectSuite/.tmp-verify/DESIGN-1.0.14-settings.md` (approved before building); every harness
+stays out of the repo.
+
+### Why the 1.0.13 page looked foreign, and the seam that fixes it
+
+- The host rule is explicit (`AryaCode/docs/web-styling.md:16`): "the ui-primitives component
+  catalog is the only channel". House rows = title+description left, control right; plugin
+  settings cards (ShellCard/WebSearchCard/…) all render through the kit's settings-form layer.
+- `require('@deepseek-ai/dsh-client-ui-primitives')` works for our build-less bundle: the
+  loader's seed table (`packages/client/web/src/seed.ts`, keys from `PLATFORM_MODULES`) is
+  checked FIRST for every fetched bundle (`system.ts makeRequire`). No vendoring needed.
+- Our settings were already a host config namespace (`index.js` `settings.register
+  ('arya-computer-use', SettingsConfig, …)`); the `configForms.get('arya-computer-use')`
+  ConfigForm `{getSnapshot, subscribe, mutate(ops, expectedRevision)}` satisfies
+  `SettingsFormScope` as-is. Staged drafts, per-field validation gating Save, Overridden tag +
+  Reset (presence in the user layer), revision-fenced writes and the saveFailed footer all come
+  from `SettingsFormModel` for free — one spec per field mirroring the `mcp/settings.mjs`
+  validators, so client and host can never disagree.
+- Pickers: `ctx.remote.directoryPicker.pick()` is the ONLY native dialog (there is no file
+  chooser in the host). Folders (screenshotDir, browserProfile) get native Browse; file fields
+  (browserCaCert, browserStateFile, browserExecutablePath) are an honest two-step — pick the
+  containing folder, then a filename Menu from `list()` filtered by extension.
+  browserExecutablePath also offers a **Detected browsers** Menu fed by a new status-route
+  probe (`index.js` `detectedBrowsers()` — existsSync over Edge/Chrome/Brave/Chromium; measured
+  here: Edge + Chrome).
+
+### What was built (client.js ~795 L)
+
+- Kit controls only: Switch ×10, SegmentedControl ×4 (toolPreset, indicatorPosition,
+  progressOverlayMode, browserToolFlags), Menu for browserTools (labels carry the MEASURED
+  counts — core · 33 … all · 160), Menu for progressOverlayPosition, SettingsValueField +
+  custom parse for every text/number field, ShortcutKeys record/clear for the two shortcuts,
+  Status = three StateDot rows + Tag chips + Resume Button (only while paused) + DisclosureRow
+  → JsonBlock + copy. Zero feature-owned CSS; inline flex rows on host tokens only. The
+  62 keyed chat rows (rule 9) and the host half are untouched.
+- Two real bugs found and fixed on Dev AryaCode:
+  1. **`ctx.inject(['remote.directoryPicker'])` never fires.** The cordis proxy throws
+     `cannot get property "directoryPicker" without inject` for subpath-only injects — the
+     SERVICE name is what resolves. Fix: dual-path `ctx.inject(['remote',
+     'remote.directoryPicker'], …)` (the host's own convention, ui-workspace index.ts:104).
+     Evidence: Browse buttons went 0 → 2 in the DOM battery.
+  2. **`model.edit is not a function`.** The kit exposes edit/resetField/discard ONLY through
+     `actions()` (`form-model.ts:274`); `save` IS an instance method (:300). Our controls called
+     them on the model object — every switch, menu and value edit threw, and the SettingsForm
+     unmount cleanup (`onDiscard → model.discard`) threw THROUGH the host slot that renders the
+     modal, so `sidebar.settings` ABDICATED and the Account menu vanished for the rest of the
+     page session — initially misread as a first-party crash; the err.log line
+     `slot entry crashed in 'sidebar.settings': TypeError: model.discard is not a function`
+     names our member access. Fix: bind the three from `actions()` onto the instance after
+     construction; `save` stays the async instance method so `runAction` can await it.
+- Dev-host lessons (all cost a cycle): hot-swapping the package while the host runs POISONS the
+  dev server's bundle cache (`web boot: 3 entries did not activate`) — always do a FULL electron
+  restart after `pnpm remove`+`add`; CSS-module hashes change per build, so probes must be
+  hash-free (labels, `data-slot`, `role`); the app's global Esc handler closes the top modal —
+  probes close menus with a body `pointerdown` instead; `??` cannot mix with `||` unparenthesized
+  in the page JS; `focus_window physical:true` refuses on the dev main window
+  (`did not become foreground`), so CDP DOM paths, not OS keystrokes, drive the probes.
+
+### Verification (V7/V8 re-run on the fixed bundle; V1–V6/V9 stand from the 1.0.13 record)
+
+- V7 status route: version 1.0.14, `engines.browsers` = Edge, Chrome, lease present,
+  desktop `package-bin` / browser `platform-package`, 28/28 tools, mcp mounted.
+- V8 battery (CDP DOM, Dev AryaCode, tarball installed in the dev profile): five sections, 10
+  switches, 9 segmented tabs, Browse ×2, Choose-file ×3, Detected browsers ×1, Record ×2,
+  Save/Discard, kbd ×2, Overridden tags ×2 + Reset ×2 (dev carry-overs), no invalid marks,
+  status lines "agent-browser 0.43.0 · core · strip · platform package" / "agent-desktop 1.3.1 ·
+  28 / 28 · lite · 150000 ms" + elevation/lease chips. Screenshots:
+  `.tmp-verify/v8-1014-page.png`, `.tmp-verify/v8-1014e-status.png`.
+- Interaction probes, all PASS: toggle → staged draft flips the switch → Save enabled →
+  persisted false through the write ladder → toggled back and restored true; invalid value
+  ("5" in Per-call ceiling) → inline "must be between 10000 and 300000", `aria-invalid`,
+  Save stays disabled, persisted value untouched; browserTools menu with all nine measured
+  counts; Detected browsers menu (Edge + Chrome with paths); Browse → the native
+  "Select Workspace Directory" dialog opened → cancelled semantically through the desktop lane
+  (InvokePattern on Cancel) → draft unchanged, modal intact.
+- Regression check for bug 2: after all of that, closing the modal left `sidebar.settings`
+  rendering the normal Account launcher (no crash face) and the err.log had ZERO new
+  `model.*`/`slot entry crashed` lines.
+- V10 has NOT run for 1.0.14 — the release gates (release-plugin.mjs dry-run then real,
+  catalogue parity, npmmirror sync) wait for the maintainer's go-ahead.
+
