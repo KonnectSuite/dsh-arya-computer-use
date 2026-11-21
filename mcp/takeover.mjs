@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_SETTINGS, normalizeSettings } from './settings.mjs';
+import { DEFAULT_SETTINGS, normalizeSettings, readJsonFile } from './settings.mjs';
 
 export const STOPPED = 'COMPUTER_USE_STOPPED_BY_USER: The user stopped this operation series with Esc or their custom shortcut. Do not retry desktop input in this turn. A new user turn, including a request to continue, can use the desktop automatically; no settings change is required.';
 const helperScript = fileURLToPath(new URL('../scripts/windows-takeover.ps1', import.meta.url));
@@ -57,7 +57,7 @@ export class TakeoverControl {
     this.resumeToken = this.config.resumeToken; this.previewToken = this.config.previewToken; this.pauseMessage = STOPPED;
     this.disabledForTest = process.env.NODE_ENV === 'test' && process.env.ARYA_TEST_NO_TAKEOVER === '1';
     try {
-      const saved = JSON.parse(readFileSync(this.stateFile, 'utf8'));
+      const saved = readJsonFile(this.stateFile);
       this.paused = saved.paused === true;
       this.pauseMessage = saved.pauseMessage ?? STOPPED;
       this.resumeToken = saved.resumeToken ?? this.resumeToken;
@@ -77,7 +77,7 @@ export class TakeoverControl {
   // harness acted (its ghost cursor). Written by the MCP adapter after each call.
   readTarget() {
     let raw = null;
-    try { raw = JSON.parse(readFileSync(this.targetFile, 'utf8')); } catch { raw = null; }
+    try { raw = readJsonFile(this.targetFile); } catch { raw = null; }
     const window = raw?.window, pointer = raw?.pointer;
     const rect = window && Number.isFinite(window.width) && Number.isFinite(window.height) && window.width > 0 && window.height > 0
       ? { left: Math.round(window.left), top: Math.round(window.top), width: Math.round(window.width), height: Math.round(window.height) }
@@ -104,9 +104,9 @@ export class TakeoverControl {
     // One synchronous read each: an async read keeps the file open across
     // event-loop turns, and a writer in the same process (tests run the host's
     // publisher here) retrying its replace synchronously would wait it out.
-    if (this.configFile) this.config = normalizeSettings(JSON.parse(readFileSync(this.configFile, 'utf8')));
+    if (this.configFile) this.config = normalizeSettings(readJsonFile(this.configFile));
     if(this.activityFile){
-      const activity=JSON.parse(readFileSync(this.activityFile,'utf8'));
+      const activity=readJsonFile(this.activityFile);
       const held=activity.active===true&&Number.isFinite(activity.expiresAt)&&activity.expiresAt>Date.now();
       const key=held?JSON.stringify([activity.sessionId,activity.turn]):this.seriesKey;
       // A series of browser-lane calls is held for turn tracking but shows

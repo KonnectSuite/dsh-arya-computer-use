@@ -22,7 +22,7 @@ is not listed ships nothing at all.
 | `mcp/quiet-input.mjs` | Driver for the background posted click (no cursor, no foreground) |
 | `mcp/settings.mjs`, `mcp/takeover.mjs`, `mcp/activity.mjs` | Settings bridge, overlay, step feed |
 | `skills/arya-desktop/SKILL.md` | The skill that teaches the agent the loop |
-| `locale/en.json` | Every user-visible string the client renders; there is only English |
+| `locale/en.json` | Market-card metadata only (title/description) — the strings the client renders live in `client.js`'s en + zh dictionaries |
 | `scripts/` | PowerShell/C# helpers the adapter calls |
 | `scripts/sync-market-index.mjs` | Rebuilds `index.json` from npm's publish times — run at every release |
 | `index.json` | The market listing this repo serves through jsDelivr (see Releasing) |
@@ -47,9 +47,16 @@ is not listed ships nothing at all.
    do not add a coordinate fallback, which is the defect this plugin exists to remove.
    Do not add a pixel path for canvas/game surfaces either; use `ocr` plus headed mouse
    input, and only where the tree genuinely does not exist.
-4. **The engines stay pinned npm dependencies.** `agent-desktop@1.2.0` and
-   `agent-browser@0.41.2` are Apache-2.0 third-party tools; keep them in `dependencies`
-   with `NOTICE.md` attribution, and do not vendor their binaries into this package.
+4. **The engines stay pinned npm dependencies.** `agent-desktop@1.3.1` and
+   `agent-browser@0.43.0` are Apache-2.0 third-party tools; keep them in `dependencies`
+   with `NOTICE.md` attribution, and do not vendor their binaries into this package. They
+   deliver their native differently: agent-desktop keeps its natives in its own `bin/`
+   (postinstall download, so it is the one build script to approve), while agent-browser
+   0.43.0 ships only `bin/agent-browser.js` — a shim — and brings its native in as an
+   *optional platform package* (`@agent-browser/cli-*`). Never judge agent-browser
+   readiness by scanning its `bin/`: resolve it through `nativeBin()` in
+   `mcp/browser-launcher.mjs` (the engine-anchored `createRequire`), which is also what
+   `index.js` uses for `mcp.engines`.
 5. **Verify by re-reading, not by trusting the return value.** A stateful action is
    confirmed by a following snapshot; `delivered_verified` is confirmation,
    `delivered_unverified` may be retried, and a post-action verification failure means

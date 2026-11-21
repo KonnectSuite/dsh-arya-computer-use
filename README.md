@@ -62,10 +62,13 @@ sources and the skill. The two MCP lanes are mounted **in-process** by `index.js
 (`ctx.plugin(<bridge>, …)`), so there are no absolute paths in the bundle patch and no `npx`
 child process — an install works the same on any machine.
 
-The plugin manager blocks dependency build scripts by default. The engines (`agent-desktop`,
-`agent-browser`) fetch their native binary in a postinstall script; approve those two builds when
-installing, or let 1.0.1+ repair them itself at start-up — the status route reports the outcome
-under `mcp.engines`.
+The plugin manager blocks dependency build scripts by default. Only **agent-desktop** needs one
+approved: its postinstall fetches the native binaries. **agent-browser** 0.43.0 delivers its native
+as an *optional platform package* (`@agent-browser/cli-win32-x64-msvc` and friends) — a plain
+dependency install, no script run — and the launcher resolves it wherever npm or pnpm put it. A
+blocked or partial engine install is repaired at start-up; the status route reports the outcome
+under `mcp.engines`, and **Settings → Computer Use → Status** shows which resolution mode each
+lane actually got.
 
 ### From npm
 
@@ -112,12 +115,21 @@ install behave identically.
 | Progress panel detail | `summary` | What the on-screen step panel prints: `summary` = short action lines, `source` = the assistant's raw text stream (the old default — it paints model text on your desktop) |
 | Stop shortcut | Esc | Global kill switch; synthetic keystrokes are ignored, so it needs a real keypress. It also gates the driver: desktop input tools return `COMPUTER_USE_STOPPED_BY_USER` for that turn (reads keep working) |
 | Tool preset | `lite` | `lite` lists all 28 desktop tools; `lazy` starts with tools/snapshot/click and reveals the rest on demand |
-| Tool surface (web) | `core` | agent-browser tool profile: core 29, network 9, state 27, debug 40, tabs 13, react 8, mobile 15, webmcp 4, all 156 |
+| Tool surface (web) | `core` | agent-browser tool profile: core 33, network 9, state 27, debug 40, tabs 13, react 8, mobile 15, webmcp 4, all 160 |
 | Chrome profile / Session | – / `arya` | Reuse a Chrome login state and name the browser session |
 | Connect to my browser | – | `--cdp` port or URL to attach to a Chrome you already have open |
 | Saved sign-in state | – | Absolute path to a cookies+localStorage JSON to reuse |
 | Browser executable path | – | Absolute path to msedge.exe / chrome.exe / brave.exe when the web lane starts its own browser; empty finds system Chrome |
 | Show the browser window | off | `--headed` for the web lane |
+| Allowed domains | – | Host-wide allow-list (`AGENT_BROWSER_ALLOWED_DOMAINS`) — the engine enforces only through this route, never the flag. It needs a fresh browser context: clear *Chrome profile* and *Session* first |
+| Browser idle timeout | engine default (1 h) | `--idle-timeout` for the web-lane daemon: `45s`, `30m`, `1h`; `0` never idles |
+| Browser namespace | – | `--namespace`: isolate the web-lane daemon's sockets and restore state from other agent-browser users on this machine |
+| Custom CA file / Use system CA | – / off | `--ca-cert <path>` and `--use-system-ca` for corporate TLS interception |
+| Browser call timeout | engine default (120 s) | `AGENT_BROWSER_DEFAULT_TIMEOUT` in ms — the per-call ceiling for web tools |
+| Confirmation actions | – | `--confirm-actions` patterns (e.g. `flow_write:*`) the engine refuses to run without approval; it never auto-approves them |
+| Engine call ceiling | 150000 ms | The desktop adapter's own hard timeout per engine command, so a hung drive answers with the timeout instead of sitting there |
+| Lease retry base | 800 ms | Backoff before the click ladder answers lease contention (doubles per try); `0` answers immediately |
+| Screenshot folder | the plugin's `screenshots/` | Absolute folder where `screenshot` and `ocr` write their PNGs |
 
 ## Tool presets
 
@@ -137,11 +149,26 @@ a transparent stdio pipe that reads the control file and spawns the real server 
 applied:
 
 ```
-node mcp/browser-launcher.mjs          # → agent-browser mcp --tools core [--profile X] [--session Y] [--state Z] [--cdp ...] [--headed]
+node mcp/browser-launcher.mjs   # → agent-browser mcp --tools core [--profile X] [--session Y] [--state Z]
+                                #     [--cdp …] [--idle-timeout T] [--namespace N] [--ca-cert P] [--use-system-ca]
+                                #     [--confirm-actions PATTERN]… [--headed]
 ```
 
 So sign-in reuse and attaching to your own Chrome are settings, not hand-edited rows. Web-lane
 changes land on the next MCP restart; the settings page says so.
+
+The launcher resolves the engine's native itself. 0.43.0's `bin/agent-browser.js` is only a shim —
+the binary arrives as an optional platform package — so the launcher finds it through the engine's
+own anchor (`createRequire` at the engine's `package.json`) and spawns the native directly. That
+bypasses the shim's daemon spawn entirely (the console-window bug, issue #2, cannot come from our
+lane), and `control/info-browser.json` records which mode it resolved to: `package-bin` (a copy
+beside the shim) or `platform-package` (the optional dependency).
+
+The host-wide web flags — idle timeout, namespace, CA, confirmation patterns — and the domain
+allow-list (env only; the flag is a no-op, measured) are applied by the launcher. That is what makes
+*Trim tool schemas* honest: `strip` removes 52 argument-key occurrences from the core profile (60
+unique keys across its 33 tools), taking the web lane's schema payload from 24,594 B to 17,793 B
+(≈ 1.7k tokens per conversation).
 
 ## How clicks work
 
@@ -206,11 +233,12 @@ NOTICE.md             engine attribution (Apache-2.0)
 
 ## Engines (not vendored — pinned npm dependencies)
 
-- [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) `1.2.0` (Apache-2.0) —
+- [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) `1.3.1` (Apache-2.0) —
   accessibility-tree computer use CLI, native Windows binaries on npm. Reference mirror:
   [KonnectSuite/dsh-arya-agent-desktop](https://github.com/KonnectSuite/dsh-arya-agent-desktop).
-- [`agent-browser`](https://github.com/vercel-labs/agent-browser) `0.41.2` (Apache-2.0) — web lane
-  via CDP (`agent-browser mcp`).
+- [`agent-browser`](https://github.com/vercel-labs/agent-browser) `0.43.0` (Apache-2.0) — web lane
+  via CDP (`agent-browser mcp`); requires Node 22+, and its native binary installs as an optional
+  platform package rather than through a build script.
 
 Attribution and the licence boundary are in [NOTICE.md](NOTICE.md).
 

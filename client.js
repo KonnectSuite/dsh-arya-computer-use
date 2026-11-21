@@ -1,13 +1,19 @@
 // Browser module: Arya Computer Use settings UI + chat activity rows.
 // Derived from dsh-computer-use-win (MIT, Yu-tao-Li) — browser-policy, tool-preset,
 // and community sections removed; behavior switches (headed/overlay/driver lock) added.
+// 1.0.13 settings overhaul: five labelled lanes, honest measured counts, per-field
+// validation, a Resume affordance, and a live Status panel that reads the host's
+// loopback status route (the two MCP lanes publish facts files the route merges).
 window.__ModuleLoader__.load({
   id: '@aryacode/dsh-plugin-arya-computer-use',
   factory: (require) => {
     const React = require('react'), h = React.createElement;
     const NS = 'aryaComputerUse.settings';
+    // The host's own status route (index.js STATUS_PATH). Same-origin, loopback-only,
+    // no token — the panel is read-only and the route already refuses non-loopback.
+    const STATUS_PATH = '/plugins/arya/status';
     const defaults = {
-      progressOverlayEnabled: true, progressOverlayMode: 'source', progressOverlayOpacity: 60,
+      progressOverlayEnabled: true, progressOverlayMode: 'summary', progressOverlayOpacity: 60,
       progressOverlayWidth: 360, progressOverlayHeight: 240, progressOverlayPosition: 'top-right',
       progressOverlayX: 80, progressOverlayY: 80, progressOverlayLocked: true, progressLockShortcut: '',
       progressPreviewToken: 0, indicatorEnabled: true, cursorIndicatorEnabled: true,
@@ -15,7 +21,9 @@ window.__ModuleLoader__.load({
       indicatorIdleMs: 800, stopShortcut: '', resumeToken: 0, previewToken: 0,
       headedDefault: false, overlayDefault: true, driverLockEnabled: true,
       toolPreset: 'lite',
-  browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserExecutablePath: '', browserHeaded: false, browserToolFlags: 'strip',
+      browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserExecutablePath: '', browserHeaded: false, browserToolFlags: 'strip',
+      browserAllowedDomains: '', browserIdleTimeout: '', browserNamespace: '', browserCaCert: '', browserUseSystemCa: false, browserDefaultTimeoutMs: 0, browserConfirmActions: '',
+      engineCallTimeoutMs: 150000, leaseRetryBaseMs: 800, screenshotDir: '',
     };
     const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
     const dictionaries = {
@@ -23,35 +31,48 @@ window.__ModuleLoader__.load({
         nav: '电脑操控', title: 'Arya 电脑操控', pluginDescription: '通过无障碍控件驱动 Windows 应用，接管时显示提示并可用 Esc 停止。',
         openSettings: '打开设置', intro: '查看接管提示，使用 Esc 停止桌面操作。',
         loadingSettings: '正在加载设置', notLoaded: '设置尚未加载', reloadSettings: '刷新',
+        desktopTitle: '桌面通道', desktopHint: 'agent-desktop 引擎驱动 Windows 应用的方式：暴露哪些工具、是否允许真实键鼠、以及调用上限等。',
         indicatorTitle: '接管提示', indicator: '为应用窗口描边框', indicatorHint: '用边框标出 agent 正在操作的窗口，并显示提示条。不会高亮你自己的鼠标。',
         cursorIndicator: '显示虚拟光标', cursorIndicatorHint: '在 agent 操作的位置画一个虚拟光标。不会跟随或高亮你的真实鼠标。',
-        appearance: '提示的更多选项', text: '提示文字', position: '提示位置', top: '顶部', bottom: '底部',
+        appearance: '提示的更多选项', progressAppearance: '浮窗选项', advanced: '高级选项', text: '提示文字', position: '提示位置', top: '顶部', bottom: '底部',
         delay: '操作后保留提示', delayHint: '连续动作保持显示，减少闪烁。200–3000 毫秒。', ms: '毫秒',
-  cursorLabel: 'Agent 名称', cursorLabelHint: '用于虚拟光标标签和进度面板标题，1–16 个字符。',
+        cursorLabel: 'Agent 名称', cursorLabelHint: '用于虚拟光标标签和进度面板标题，1–16 个字符。',
         remoteVisible: '远程与录屏可见', remoteVisibleHint: '让远程桌面、屏幕共享和录屏看到接管提示与浮窗。关闭后请求 Windows 把它们排除在捕获之外。',
         preview: '预览接管提示', previewed: '已请求预览；如果之前按 Esc 暂停，请先恢复控制。', previewHint: '请先保存更改，再预览屏幕上的实际效果。',
         progressTitle: '操作浮窗', progressOverlay: '显示操作浮窗', progressOverlayHint: '在屏幕上显示当前步骤、模型的思考与回复。',
         progressLocked: '锁定浮窗', progressLockedHint: '锁定后浮窗不抢焦点、不可拖动；可用快捷键解锁。',
         progressSync: '浮窗位置与大小与接管浮窗同步。', openProgress: '显示浮窗',
+        progressMode: '浮窗内容', progressModeHint: '摘要只显示每个动作的简短一行；原始模型文本会把助手的未整理文本直接画在桌面上。', progressModeSummary: '摘要', progressModeSource: '原始模型文本',
         progressOpacity: '背景不透明度（%）', progressWidth: '宽度（像素）', progressHeight: '高度（像素）',
         progressPosition: '浮窗位置', progress_topRight: '右上', progress_topLeft: '左上', progress_bottomRight: '右下', progress_bottomLeft: '左下', progress_custom: '自定义',
         progressX: 'X 坐标', progressY: 'Y 坐标', progressShortcut: '浮窗解锁快捷键', progressShortcutHint: '按下后临时解锁浮窗以便拖动。留空表示不设置。',
-        toolSurfaceTitle: '工具范围', toolPreset: '工具预设', toolPresetHint: 'lite 直接列出全部 16 个工具；lazy 只暴露 tools / snapshot / click，其余按需加载。修改后需重启 MCP 生效。', toolPresetLite: 'lite · 全部 16 个', toolPresetLazy: 'lazy · 按需加载',
-  behaviorTitle: '操作方式', headedDefault: '真实鼠标和键盘', headedDefaultHint: '默认关闭：点击通过辅助功能接口或后台发送的消息完成，指针和前台窗口仍归你，文本走 set_value。开启后本对话内允许真实键盘鼠标输入（type、focus，以及没有其他路径的点击），会移动指针并短暂聚焦目标窗口。单次调用写 physical: true 是更窄的选择。',
-        overlayDefault: '引擎会话叠加层', overlayDefaultHint: '启动桌面会话时启用引擎自带的光标叠加层。Arya 的虚拟光标不依赖它。',
+        toolSurfaceTitle: '工具范围', toolPreset: '工具预设', toolPresetHint: 'lite 直接列出全部 28 个工具；lazy 只暴露 tools / snapshot / click，其余按需加载。修改后需重启 MCP 生效。', toolPresetLite: 'lite · 全部 28 个', toolPresetLazy: 'lazy · 按需加载',
+        behaviorTitle: '操作方式', headedDefault: '真实鼠标和键盘', headedDefaultHint: '默认关闭：点击通过辅助功能接口或后台发送的消息完成，指针和前台窗口仍归你，文本走 set_value。开启后本对话内允许真实键盘鼠标输入（type、focus，以及没有其他路径的点击），会移动指针并短暂聚焦目标窗口。单次调用写 physical: true 是更窄的选择。',
+        overlayDefault: '引擎会话叠加层', overlayDefaultHint: '启动桌面会话时启用引擎自带的光标叠加层。Arya 的虚拟光标不依赖它；除非你也想要引擎的标记，否则保持关闭。',
         driverLock: '单会话驱动', driverLockHint: '同一时间只允许一个对话操作桌面；其他对话调用桌面工具会收到 BUSY 提示。关闭后最近使用的对话自动接管。',
-        browserTitle: '网页通道', browserTools: '工具范围', browserToolsHint: 'agent-browser 向 MCP 暴露的工具集。修改后需重启 MCP 生效。',
-        browserFlags: '精简工具定义', browserFlagsHint: '插件启动网页通道时已经设好域名、证书、会话等全局参数，每个工具里重复的这些参数可以删掉：strip 全部删除（约省 1.8 万 token），lean 保留会话与状态恢复相关项，off 保持 agent-browser 原样。修改后需重启 MCP 生效。', browserFlagsStrip: 'strip · 全部删除', browserFlagsLean: 'lean · 保留会话项', browserFlagsOff: 'off · 保持原样',
+        engineCallTimeout: '单次调用上限（毫秒）', engineCallTimeoutHint: '一次引擎调用超过这个时间就返回超时信封。10000–300000；默认 150000。',
+        leaseRetryBase: '争用重试基数（毫秒）', leaseRetryBaseHint: '桌面锁被占用时的重试间隔基数，每次翻倍（默认 800 → 1600 → 3200）。0 表示不重试、立即回答。100–10000。',
+        screenshotDir: '截图目录', screenshotDirHint: 'screenshot 与 ocr 保存 PNG 的绝对路径目录；留空则用插件目录下的 screenshots。',
+        browserTitle: '网页通道', webToolsGroup: '暴露哪些工具', webBrowserGroup: '使用哪个浏览器', webNetworkGroup: '网络与信任',
+        browserTools: '工具范围', browserToolsHint: 'agent-browser 向 MCP 暴露的工具集（0.43.0 实测）：core 33 个、network 9、state 27、debug 40、tabs 13、react 8、mobile 15、webmcp 4、all 160。修改后需重启 MCP 生效。',
+        browserFlags: '精简工具定义', browserFlagsHint: '插件启动网页通道时会把 host-wide 参数设好（域名走 AGENT_BROWSER_ALLOWED_DOMAINS，空闲超时、命名空间、证书、确认动作走命令行参数），因此每个工具里重复的这些参数可以删掉：strip 在 core 上删除 52 处参数（schema 24,594 B → 17,793 B，约省 1.7k token），lean 只保留会话与状态恢复相关项，off 保持 agent-browser 原样。修改后需重启 MCP 生效。', browserFlagsStrip: 'strip · 全部删除', browserFlagsLean: 'lean · 保留会话项', browserFlagsOff: 'off · 保持原样',
         browserProfile: 'Chrome 配置', browserProfileHint: '配置名称（如 Default）或目录路径，让网页通道复用你的登录状态。',
         browserSession: '会话名', browserSessionHint: '隔离的会话键；不同会话名的 Cookie 与标签页彼此独立。',
         browserCdp: '连接我的浏览器', browserCdpHint: 'CDP 地址，例如 http://127.0.0.1:9222。用 --remote-debugging-port=9222 启动 Chrome 即可共享已登录的窗口。',
         browserStateFile: '已保存的登录状态', browserStateFileHint: '用 agent-browser state save 保存的 JSON 状态文件路径。',
         browserExecutablePath: '浏览器程序路径', browserExecutablePathHint: '网页通道自己启动浏览器时使用的可执行文件绝对路径，例如 Edge 的 msedge.exe 路径；留空则由 agent-browser 自行查找系统 Chrome。',
         browserHeaded: '显示浏览器窗口', browserHeadedHint: '打开可见的 Chromium 窗口，而不是无头运行。',
+        browserAllowedDomains: '允许的域名', browserAllowedDomainsHint: '逗号分隔的域名模式（可用 *. 前缀）。注意：引擎要求全新的浏览器上下文，不能与 Chrome 配置或会话名同时使用。',
+        browserIdleTimeout: '空闲超时', browserIdleTimeoutHint: '守护进程空闲多久后退出，例如 45s、30m、1h；0 表示永不退出。留空为引擎默认 1h。',
+        browserNamespace: '命名空间', browserNamespaceHint: '隔离守护进程的 socket 与状态目录；不同命名空间互不干扰。字母、数字、下划线和连字符。',
+        browserCaCert: '自定义 CA 证书', browserCaCertHint: 'PEM 文件绝对路径，让网页通道信任你的内网证书。',
+        browserUseSystemCa: '使用系统证书库', browserUseSystemCaHint: '除内置根证书外，同时信任 Windows 系统证书库里的根证书。',
+        browserDefaultTimeout: '默认调用超时（毫秒）', browserDefaultTimeoutHint: '每个网页工具调用的默认上限；0 表示用引擎默认 120000。1000–600000。',
+        browserConfirmActions: '需要确认的动作', browserConfirmActionsHint: '逗号分隔的策略动作 ID，例如 flow_write:deploy、plugin:vault:credential.read。列出的动作必须人工确认，不会自动放行。',
         browserRestart: '网页通道设置在下一次 MCP 重启后生效。',
-        invalidBrowser: '会话名只能包含字母、数字、连字符和下划线；CDP 地址需为端口、http(s):// 或 ws:// 地址；状态文件与浏览器程序路径需为绝对路径。',
         stop: '停止与恢复', escTitle: '按 Esc 停止操作', escAlways: 'Esc 始终可用',
         stopHint: '停止后保持暂停，准备好再恢复。普通鼠标移动不会停止接管。',
+        resume: '恢复控制', resumed: '已请求恢复；下一次桌面调用继续。', resumeHint: '按 Esc 停止后，用这个按钮恢复桌面操作，无需重启。',
         extraStop: '自定义停止方式', shortcutHint: '点击“录制快捷键”，再按下想用的按键或组合键，例如 F8 或 Ctrl + Alt + K。保存后生效；恢复默认后仅保留 Esc。',
         record: '录制快捷键', rerecord: '重新录制', cancelRecord: '取消录制', clearShortcut: '恢复默认（Esc）',
         noShortcut: 'Esc（默认）', listening: '请按下快捷键…（Esc 取消）', listeningCancel: '按 Esc 取消',
@@ -60,51 +81,79 @@ window.__ModuleLoader__.load({
         save: '保存更改', discard: '放弃更改', dirty: '有未保存的更改', clean: '更改后点击保存',
         saved: '已保存', failed: '保存失败', unavailable: '当前宿主未提供可写设置，请在本机 DSH 中打开此页面。',
         invalid: '请填写 1–120 字的单行提示文字，并将隐藏延时设为 200–3000 的整数。',
+        invalidJoin: '：', invalidText: '需为 1–120 个字符的单行文字', invalidLabel: '需为 1–16 个字符的单行文字', invalidDelay: '需为 200–3000 的整数',
+        invalidName: '只能包含字母、数字、连字符和下划线', invalidCdp: '需为端口、http(s):// 或 ws(s):// 地址', invalidPath: '需为绝对路径（如 C:\\dir 或 /dir）',
+        invalidDuration: '需为时长，例如 45s、30m、1h，或 0 表示禁用', invalidDomains: '每项需为域名或 *.域名', invalidActions: '每项需为策略动作 ID（字母、数字、_:*.-）',
+        invalidTimeout: '需为 0 或 1000–600000', invalidCallTimeout: '需为 10000–300000', invalidLeaseBase: '需为 0 或 100–10000',
         persistFailed: '宿主未确认设置已保存，请刷新后重试。', moreInfo: '更多说明',
+        statusTitle: '状态', statusUnavailable: '状态不可用。', statusRefresh: '刷新',
+        statusLaneBrowser: '浏览器通道', statusLaneDesktop: '桌面通道', statusLaneSession: '本次会话',
+        statusEngine: '引擎', statusNative: '原生程序', statusNativeMode: '解析方式', statusProfile: '工具集', statusStrip: '精简',
+        statusTools: '暴露的工具', statusPreset: '预设', statusMount: 'MCP 挂载', statusMounted: '已挂载', statusNotMounted: '未挂载',
+        statusTakeover: '接管', statusTakeoverRunning: '正在接管', statusTakeoverPaused: '已暂停', statusTakeoverIdle: '空闲',
+        statusElevation: '权限', elevatedYes: '已管理员提权', elevatedNo: '未提权（需以管理员身份重启 AryaCode）', elevatedUnknown: '未知',
+        statusLease: '驱动锁目录', leaseYes: '存在', leaseNo: '缺失（以管理员身份启动 AryaCode 后会自动创建）',
+        statusEngines: '引擎自检', engineOk: '正常', engineMissing: '缺失', statusDriver: '当前驱动者', statusNone: '无',
+        statusMode: { packagebin: '随包二进制', 'platform-package': '平台包', shim: 'JS 兜底', downloaded: '已下载' },
         see: '查看了屏幕', read: '读取了界面控件', windows: '查看了打开的窗口', findControl: '查找了界面控件',
         clickAction: '点击了目标', valueAction: '填写了控件内容', typeAction: '输入了文本', keyAction: '发送了按键',
         scrollAction: '滚动了页面', waitAction: '等待了界面响应', ocrAction: '识别了屏幕文字',
         launchAction: '请求启动应用', toolsAction: '查看了工具配置', working: '正在操作…', completed: '已完成',
         failedAction: '未完成', stoppedAction: '已停止', seriesTitle: '本轮桌面操作', sentOnly: '操作已发送，效果待确认',
         showDetails: '查看步骤和截图', seriesCount: '步操作', stepError: '操作失败', and: '，并',
+        toggleControl: '切换了控件', expandControl: '展开了控件分组', scrollTo: '滚动到了目标', chooseOption: '选择了选项',
+        focusTarget: '聚焦了目标', clearField: '清空了控件',
         openPage: '打开了网页', readPage: '读取了网页', lookPage: '查看了网页', clickPage: '点击了网页元素', typePage: '在网页中输入',
         keyPage: '发送了按键', shotPage: '截取了网页', evalPage: '执行了页面脚本', tabsPage: '管理了标签页', closePage: '关闭了浏览器',
         waitPage: '等待网页响应', infoPage: '读取了页面信息', scrollPage: '滚动了网页', navPage: '导航到新地址', selectPage: '选择了选项',
-        togglePage: '切换了页面控件',
+        togglePage: '切换了页面控件', flowRun: '运行了已保存的流程', flowSave: '保存了网页流程', flowInspect: '查看了网页流程',
       },
       en: {
         nav: 'Computer Use', title: 'Arya Computer Use', pluginDescription: 'Drives Windows apps through accessibility controls, shows a takeover indicator, and stops on Esc.',
         openSettings: 'Open settings', intro: 'See when the agent controls your desktop. Press Esc to stop.',
         loadingSettings: 'Loading settings', notLoaded: 'Settings are not loaded', reloadSettings: 'Reload',
+        desktopTitle: 'Desktop lane', desktopHint: 'How the agent-desktop engine drives Windows apps: which tools are exposed, whether real input is allowed, and the call limits.',
         indicatorTitle: 'Takeover indicator', indicator: 'Frame the app window', indicatorHint: 'A rim marks the window the agent is driving, with a banner. Your own pointer is never highlighted.',
         cursorIndicator: 'Show a ghost cursor', cursorIndicatorHint: 'Draws a synthetic cursor where the agent acts. Your real pointer is never followed or highlighted.',
-        appearance: 'More indicator options', text: 'Banner text', position: 'Banner position', top: 'Top', bottom: 'Bottom',
+        appearance: 'More indicator options', progressAppearance: 'Overlay options', advanced: 'Advanced options', text: 'Banner text', position: 'Banner position', top: 'Top', bottom: 'Bottom',
         delay: 'Keep visible after an action', delayHint: 'Stay visible between consecutive actions. 200–3000 milliseconds.', ms: 'ms',
-  cursorLabel: 'Agent name', cursorLabelHint: 'Used for the ghost cursor tag and the progress panel header. 1–16 characters.',
+        cursorLabel: 'Agent name', cursorLabelHint: 'Used for the ghost cursor tag and the progress panel header. 1–16 characters.',
         remoteVisible: 'Visible in remote sessions and recordings', remoteVisibleHint: 'Show the takeover indicator and overlay in remote access, screen sharing and recordings; turning it off asks Windows to exclude them from capture.',
         preview: 'Preview indicator', previewed: 'Preview requested; resume first if you previously stopped with Esc.', previewHint: 'Save changes before previewing the actual screen indicator.',
         progressTitle: 'Progress overlay', progressOverlay: 'Show the progress overlay', progressOverlayHint: 'Show the current step, reasoning and replies on screen.',
         progressLocked: 'Lock the overlay', progressLockedHint: 'A locked overlay never steals focus and cannot be dragged; a shortcut unlocks it.',
         progressSync: 'Overlay size and position stay in sync with the takeover overlay.', openProgress: 'Show overlay',
+        progressMode: 'Overlay content', progressModeHint: "Summary shows one short action line per step. Raw model text paints the assistant's unprocessed text stream on your desktop.", progressModeSummary: 'Summary', progressModeSource: 'Raw model text',
         progressOpacity: 'Background opacity (%)', progressWidth: 'Width (px)', progressHeight: 'Height (px)',
         progressPosition: 'Overlay position', progress_topRight: 'Top right', progress_topLeft: 'Top left', progress_bottomRight: 'Bottom right', progress_bottomLeft: 'Bottom left', progress_custom: 'Custom',
         progressX: 'X coordinate', progressY: 'Y coordinate', progressShortcut: 'Overlay unlock shortcut', progressShortcutHint: 'Press to temporarily unlock the overlay so you can drag it. Empty means none.',
-        toolSurfaceTitle: 'Tool surface', toolPreset: 'Tool preset', toolPresetHint: 'lite lists all 16 tools up front; lazy exposes tools / snapshot / click and loads the rest on demand. Changes apply after the next MCP restart.', toolPresetLite: 'lite · all 16', toolPresetLazy: 'lazy · load on demand',
-  behaviorTitle: 'Control style', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: clicks go through accessibility patterns or a background posted click, so the pointer and the foreground stay yours, and text goes through set_value. Turn on to allow real keyboard and mouse input for the rest of the conversation (type, focus, and a click that has no other way), which moves the pointer and briefly focuses the target window. physical: true on one call is the narrower choice.',
+        toolSurfaceTitle: 'Tool surface', toolPreset: 'Tool preset', toolPresetHint: 'lite lists all 28 tools up front; lazy exposes tools / snapshot / click and loads the rest on demand. Changes apply after the next MCP restart.', toolPresetLite: 'lite · all 28', toolPresetLazy: 'lazy · load on demand',
+        behaviorTitle: 'Control style', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: clicks go through accessibility patterns or a background posted click, so the pointer and the foreground stay yours, and text goes through set_value. Turn on to allow real keyboard and mouse input for the rest of the conversation (type, focus, and a click that has no other way), which moves the pointer and briefly focuses the target window. physical: true on one call is the narrower choice.',
         overlayDefault: 'Engine session overlay', overlayDefaultHint: "Starts the desktop session with the engine's own cursor overlay. Arya's ghost cursor does not depend on it; leave it off unless you want the engine marker too.",
         driverLock: 'One conversation drives at a time', driverLockHint: 'While one conversation is driving, desktop calls from other conversations receive a BUSY notice. Turn off to let the most recent conversation take over automatically.',
-        browserTitle: 'Web lane', browserTools: 'Tool surface', browserToolsHint: 'Which agent-browser tool profiles the MCP server exposes. Changing this applies on the next MCP restart.',
-        browserFlags: 'Trim tool schemas', browserFlagsHint: 'The plugin already sets domains, certificates, session and other host-wide flags when it starts the web lane, so the copies repeated inside every tool can go: strip removes them all (about 18k tokens saved), lean keeps the session and state-restore ones, off leaves the agent-browser schemas untouched. Changes apply after the next MCP restart.', browserFlagsStrip: 'strip · remove all', browserFlagsLean: 'lean · keep session flags', browserFlagsOff: 'off · keep as shipped',
+        engineCallTimeout: 'Per-call ceiling (ms)', engineCallTimeoutHint: 'An engine call longer than this returns a timeout envelope. 10000–300000; default 150000.',
+        leaseRetryBase: 'Contention retry base (ms)', leaseRetryBaseHint: 'Base gap before retrying a held desktop lease; each retry doubles it (default 800 → 1600 → 3200). 0 answers contention immediately. 100–10000.',
+        screenshotDir: 'Screenshot folder', screenshotDirHint: "Absolute folder where screenshot and ocr write PNG files. Empty uses the plugin's own screenshots folder.",
+        browserTitle: 'Web lane', webToolsGroup: 'Which tools', webBrowserGroup: 'Which browser', webNetworkGroup: 'Network and trust',
+        browserTools: 'Tool surface', browserToolsHint: 'Which agent-browser tool profiles the MCP server exposes (measured on 0.43.0): core 33, network 9, state 27, debug 40, tabs 13, react 8, mobile 15, webmcp 4, all 160. Changing this applies on the next MCP restart.',
+        browserFlags: 'Trim tool schemas', browserFlagsHint: 'The plugin sets the host-wide flags when it starts the web lane — domains through AGENT_BROWSER_ALLOWED_DOMAINS, idle timeout, namespace, certificates and confirmation actions as server flags — so the copies repeated inside every tool can go: strip removes 52 argument slots on core (schemas 24,594 B → 17,793 B, about 1.7k tokens), lean keeps the session and state-restore ones, off leaves the agent-browser schemas untouched. Changes apply after the next MCP restart.', browserFlagsStrip: 'strip · remove all', browserFlagsLean: 'lean · keep session flags', browserFlagsOff: 'off · keep as shipped',
         browserProfile: 'Chrome profile', browserProfileHint: 'A profile name such as Default, or a directory path, so the web lane reuses your sign-ins.',
         browserSession: 'Session', browserSessionHint: 'An isolated session key; cookies and tabs stay separate per name.',
         browserCdp: 'Connect to my browser', browserCdpHint: 'A CDP endpoint such as http://127.0.0.1:9222. Start Chrome with --remote-debugging-port=9222 to share a signed-in window.',
         browserStateFile: 'Saved sign-in state', browserStateFileHint: 'Path to a JSON state file written by agent-browser state save.',
         browserExecutablePath: 'Browser executable path', browserExecutablePathHint: 'Absolute path to the executable the web lane launches when it starts its own browser, for example the Edge msedge.exe path. Leave empty to let agent-browser find system Chrome.',
         browserHeaded: 'Show the browser window', browserHeadedHint: 'Open a visible Chromium window instead of running headless.',
+        browserAllowedDomains: 'Allowed domains', browserAllowedDomainsHint: 'Comma-separated domain patterns (a *. prefix is allowed). Note: the engine needs a fresh browser context for this, so it cannot combine with a Chrome profile or a session name.',
+        browserIdleTimeout: 'Idle timeout', browserIdleTimeoutHint: 'How long the daemon may sit idle before exiting, for example 45s, 30m, 1h; 0 never exits. Empty is the engine default of 1h.',
+        browserNamespace: 'Namespace', browserNamespaceHint: 'Isolates the daemon sockets and state directories; namespaces never touch each other. Letters, numbers, hyphens and underscores.',
+        browserCaCert: 'Custom CA certificate', browserCaCertHint: 'Absolute path to a PEM file, so the web lane trusts your internal certificates.',
+        browserUseSystemCa: 'Trust the system certificate store', browserUseSystemCaHint: 'Also trust the roots in the Windows system certificate store, not only the built-in ones.',
+        browserDefaultTimeout: 'Default call timeout (ms)', browserDefaultTimeoutHint: 'The default ceiling for every web tool call; 0 uses the engine default of 120000. 1000–600000.',
+        browserConfirmActions: 'Actions needing confirmation', browserConfirmActionsHint: 'Comma-separated policy action ids, for example flow_write:deploy, plugin:vault:credential.read. Listed actions require approval — they are never auto-approved.',
         browserRestart: 'Web lane settings apply after the next MCP restart.',
-        invalidBrowser: 'The session may contain letters, numbers, hyphens and underscores; the CDP value must be a port, an http(s):// URL or a ws:// URL; the state file and the browser executable path must be absolute paths.',
         stop: 'Stop and resume', escTitle: 'Press Esc to stop', escAlways: 'Esc always works',
         stopHint: 'Control stays paused until you resume. Ordinary mouse movement does not stop it.',
+        resume: 'Resume control', resumed: 'Resume requested; the next desktop call continues.', resumeHint: 'After a stop with Esc, resume desktop control without restarting anything.',
         extraStop: 'Custom stop shortcut', shortcutHint: 'Click Record shortcut, then press a key or combination, such as F8 or Ctrl + Alt + K. Save to apply. Restoring the default keeps only Esc.',
         record: 'Record shortcut', rerecord: 'Record again', cancelRecord: 'Cancel recording', clearShortcut: 'Restore default (Esc)',
         noShortcut: 'Esc (default)', listening: 'Press your shortcut… (Esc to cancel)', listeningCancel: 'Press Esc to cancel',
@@ -113,17 +162,32 @@ window.__ModuleLoader__.load({
         save: 'Save changes', discard: 'Discard changes', dirty: 'Unsaved changes', clean: 'Save after making changes',
         saved: 'Saved', failed: 'Save failed', unavailable: 'Writable settings are unavailable. Open this page in your local DSH host.',
         invalid: 'Use 1–120 characters on one line and an integer hide delay between 200 and 3000.',
+        invalidJoin: ': ', invalidText: 'needs 1–120 characters on one line', invalidLabel: 'needs 1–16 characters on one line', invalidDelay: 'needs an integer between 200 and 3000',
+        invalidName: 'may only contain letters, numbers, hyphens and underscores', invalidCdp: 'must be a port, an http(s):// URL or a ws(s):// URL', invalidPath: 'must be an absolute path (like C:\\dir or /dir)',
+        invalidDuration: 'must be a duration such as 45s, 30m or 1h, or 0 to disable', invalidDomains: 'each entry must be a domain or *.domain', invalidActions: 'each entry must be a policy action id (letters, digits, _:*.-)',
+        invalidTimeout: 'must be 0 or between 1000 and 600000', invalidCallTimeout: 'must be between 10000 and 300000', invalidLeaseBase: 'must be 0 or between 100 and 10000',
         persistFailed: 'The host did not confirm the saved settings. Refresh and retry.', moreInfo: 'More information',
+        statusTitle: 'Status', statusUnavailable: 'Status unavailable.', statusRefresh: 'Refresh',
+        statusLaneBrowser: 'Browser lane', statusLaneDesktop: 'Desktop lane', statusLaneSession: 'This session',
+        statusEngine: 'Engine', statusNative: 'Native binary', statusNativeMode: 'Resolved by', statusProfile: 'Tool profile', statusStrip: 'Trimming',
+        statusTools: 'Exposed tools', statusPreset: 'Preset', statusMount: 'MCP mount', statusMounted: 'mounted', statusNotMounted: 'not mounted',
+        statusTakeover: 'Takeover', statusTakeoverRunning: 'driving now', statusTakeoverPaused: 'paused', statusTakeoverIdle: 'idle',
+        statusElevation: 'Elevation', elevatedYes: 'elevated (administrator)', elevatedNo: 'not elevated — restart AryaCode as administrator', elevatedUnknown: 'unknown',
+        statusLease: 'Lease root', leaseYes: 'present', leaseNo: 'missing — start AryaCode as administrator and it is created',
+        statusEngines: 'Engine self-check', engineOk: 'ok', engineMissing: 'missing', statusDriver: 'Driving now', statusNone: 'none',
+        statusMode: { packagebin: 'shipped binary', 'platform-package': 'platform package', shim: 'JS fallback', downloaded: 'downloaded' },
         see: 'Viewed the screen', read: 'Read interface controls', windows: 'Listed open windows', findControl: 'Looked for controls',
         clickAction: 'Clicked the target', valueAction: 'Filled in a control', typeAction: 'Entered text', keyAction: 'Sent a key press',
         scrollAction: 'Scrolled the page', waitAction: 'Waited for the interface', ocrAction: 'Read screen text',
         launchAction: 'Requested app launch', toolsAction: 'Viewed tool settings', working: 'Working…', completed: 'Completed',
         failedAction: 'Incomplete', stoppedAction: 'Stopped', seriesTitle: 'Desktop activity', sentOnly: 'Input sent; effect unconfirmed',
         showDetails: 'Steps and screenshots', seriesCount: 'steps', stepError: 'Action failed', and: ', then ',
+        toggleControl: 'Toggled a control', expandControl: 'Expanded a control group', scrollTo: 'Scrolled to the target', chooseOption: 'Chose an option',
+        focusTarget: 'Focused the target', clearField: 'Cleared a control',
         openPage: 'Opened a page', readPage: 'Read the page', lookPage: 'Looked at the page', clickPage: 'Clicked in the page', typePage: 'Typed in the page',
         keyPage: 'Sent a key press', shotPage: 'Captured the page', evalPage: 'Evaluated on the page', tabsPage: 'Managed tabs', closePage: 'Closed the browser',
         waitPage: 'Waited for the page', infoPage: 'Read page information', scrollPage: 'Scrolled the page', navPage: 'Navigated', selectPage: 'Selected an option',
-        togglePage: 'Toggled a page control',
+        togglePage: 'Toggled a page control', flowRun: 'Ran a saved flow', flowSave: 'Saved a page flow', flowInspect: 'Reviewed page flows',
       },
     };
     function shortcutFromEvent(event) {
@@ -135,7 +199,7 @@ window.__ModuleLoader__.load({
       return key ? [event.ctrlKey && 'Ctrl', event.altKey && 'Alt', event.shiftKey && 'Shift', event.metaKey && 'Win', key].filter(Boolean).join('+') : null;
     }
     const css = `
-      [data-arya-settings]{--arya-card:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-2,Canvas));--arya-sunken:var(--dsw-alias-bg-module-platform,color-mix(in srgb,CanvasText 4%,Canvas));--arya-control:var(--dsw-alias-bg-layer-1,Canvas);--arya-fg:var(--dsw-alias-label-primary,CanvasText);--arya-muted:var(--dsw-alias-label-secondary,#61666b);--arya-subtle:var(--dsw-alias-label-tertiary,#81858c);--arya-line:var(--dsw-alias-border-l2,rgba(128,128,128,.2));--arya-line-strong:var(--dsw-alias-border-l3,rgba(128,128,128,.3));--arya-hover:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.1));--arya-accent:var(--dsw-alias-state-business-primary,#4176e6);--arya-primary:var(--dsw-alias-button-primary-fill,#0f1115);--arya-primary-fg:var(--dsw-alias-label-primary-foreground,#fff);--arya-tip-bg:var(--dsw-alias-tooltip-bg,#2b2f36);--arya-tip-fg:#fff;color:var(--arya-fg);font:14px/1.55 var(--dsw-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif);max-width:720px;list-style:none;box-sizing:border-box;margin:0;padding:0 0 8px}
+      [data-arya-settings]{--arya-card:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-2,Canvas));--arya-sunken:var(--dsw-alias-bg-module-platform,color-mix(in srgb,CanvasText 4%,Canvas));--arya-control:var(--dsw-alias-bg-layer-1,Canvas);--arya-fg:var(--dsw-alias-label-primary,CanvasText);--arya-muted:var(--dsw-alias-label-secondary,#61666b);--arya-subtle:var(--dsw-alias-label-tertiary,#81858c);--arya-line:var(--dsw-alias-border-l2,rgba(128,128,128,.2));--arya-line-strong:var(--dsw-alias-border-l3,rgba(128,128,128,.3));--arya-hover:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.1));--arya-accent:var(--dsw-alias-state-business-primary,#4176e6);--arya-primary:var(--dsw-alias-button-primary-fill,#0f1115);--arya-primary-fg:var(--dsw-alias-label-primary-foreground,#fff);--arya-tip-bg:var(--dsw-alias-tooltip-bg,#2b2f36);--arya-tip-fg:#fff;--arya-bad:#e05656;color:var(--arya-fg);font:14px/1.55 var(--dsw-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif);max-width:720px;list-style:none;box-sizing:border-box;margin:0;padding:0 0 8px}
       [data-arya-settings] *{box-sizing:border-box}
       [data-arya-settings] h2{font-size:18px;line-height:1.4;font-weight:600;margin:0}
       [data-arya-settings] h3{font-size:15px;line-height:22px;font-weight:600;margin:0}
@@ -147,6 +211,9 @@ window.__ModuleLoader__.load({
       [data-arya-settings] .arya-section-head .arya-end{margin-left:auto;display:flex;gap:6px}
       [data-arya-settings] .arya-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px}
       [data-arya-settings] .arya-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px;padding:8px 0 2px}
+      [data-arya-settings] .arya-fields.arya-wide{grid-template-columns:minmax(0,1fr)}
+      [data-arya-settings] .arya-subhead{margin:12px 0 2px;font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--arya-subtle)}
+      [data-arya-settings] .arya-subhead:first-child{margin-top:2px}
       [data-arya-settings] .arya-item{display:flex;gap:10px;align-items:flex-start;min-width:0}
       [data-arya-settings] .arya-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
       [data-arya-settings] .arya-item-title{font-size:13.5px;font-weight:500;line-height:1.5}
@@ -176,6 +243,7 @@ window.__ModuleLoader__.load({
       [data-arya-settings] summary:before{content:'';width:0;height:0;border-style:solid;border-width:4.5px 0 4.5px 6px;border-color:transparent transparent transparent currentColor;opacity:.55;transition:transform .15s}
       [data-arya-settings] details[open]>summary:before{transform:rotate(90deg)}
       [data-arya-settings] select,[data-arya-settings] input[type=number],[data-arya-settings] input[type=text]{background:var(--arya-control);color:var(--arya-fg);border:.5px solid var(--arya-line-strong);border-radius:var(--dsw-radius-sm,8px);padding:5px 8px;font:inherit;min-width:0;width:100%}
+      [data-arya-settings] [data-arya-invalid]{border-color:var(--arya-bad);outline:2px solid color-mix(in srgb,var(--arya-bad) 55%,transparent);outline-offset:1px}
       [data-arya-settings] .arya-number{display:flex;align-items:center;gap:6px}
       [data-arya-settings] .arya-number input{width:96px}
       [data-arya-settings] .arya-segment{display:inline-flex;border:.5px solid var(--arya-line-strong);border-radius:var(--dsw-radius-sm,8px);overflow:hidden}
@@ -191,7 +259,7 @@ window.__ModuleLoader__.load({
       [data-arya-settings] .arya-footer{display:flex;align-items:center;gap:10px;border-top:.5px solid var(--arya-line);padding-top:12px}
       [data-arya-settings] .arya-status{flex:1;font-size:13px;color:var(--arya-muted)}
       [data-arya-settings] .arya-status[data-tone=success]{color:var(--arya-accent)}
-      [data-arya-settings] .arya-status[data-tone=error]{color:#e05656}
+      [data-arya-settings] .arya-status[data-tone=error]{color:var(--arya-bad)}
       [data-arya-settings] .arya-actions{display:flex;gap:8px}
       [data-arya-settings] .arya-info{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:8px;color:var(--arya-subtle);cursor:help;vertical-align:baseline;margin-left:3px}
       [data-arya-settings] .arya-info:hover,[data-arya-settings] .arya-info:focus-visible{color:var(--arya-fg);background:var(--arya-hover);outline:none}
@@ -205,7 +273,14 @@ window.__ModuleLoader__.load({
       [data-arya-settings] .arya-shortcut-value[data-recording]{outline:2px solid var(--arya-accent);outline-offset:2px;border-radius:6px}
       [data-arya-settings] .arya-hint{font-size:12px;color:var(--arya-subtle);margin:2px 0 0}
       [data-arya-settings] .arya-nowrap{white-space:nowrap}
-      @media (max-width:640px){[data-arya-settings] .arya-grid,[data-arya-settings] .arya-fields{grid-template-columns:minmax(0,1fr)}}
+      [data-arya-settings] .arya-statusrow{display:flex;gap:10px;align-items:baseline;padding:2.5px 0;font-size:12.5px;border-bottom:.5px solid var(--arya-line)}
+      [data-arya-settings] .arya-statusrow:last-of-type{border-bottom:0}
+      [data-arya-settings] .arya-statusrow b{flex:none;min-width:130px;font-weight:500;color:var(--arya-muted)}
+      [data-arya-settings] .arya-statusrow span{min-width:0;overflow-wrap:anywhere}
+      [data-arya-settings] .arya-ok{color:var(--arya-accent)}
+      [data-arya-settings] .arya-bad{color:var(--arya-bad)}
+      [data-arya-settings] .arya-status-lane{margin:8px 0 2px;font-size:12px;font-weight:600;color:var(--arya-subtle)}
+      @media (max-width:640px){[data-arya-settings] .arya-grid,[data-arya-settings] .arya-fields,[data-arya-settings] .arya-fields.arya-wide{grid-template-columns:minmax(0,1fr)}[data-arya-settings] .arya-statusrow{flex-direction:column;gap:1px}[data-arya-settings] .arya-statusrow b{min-width:0}}
     `;
     function Info({ id, label, text }) {
       const anchor = React.useRef(null), tip = React.useRef(null), timer = React.useRef(0);
@@ -251,6 +326,12 @@ window.__ModuleLoader__.load({
         box(on ? 'a-acc' : 'a-ink2', 30, 50, 52, 12, 3), ...(on ? [box('a-text', 34, 53, 6, 2, 1), box('a-text', 42, 53, 6, 2, 1), box('a-text', 50, 53, 6, 2, 1), box('a-text', 58, 53, 6, 2, 1), box('a-text', 66, 53, 6, 2, 1)] : []), arrow(84, 46)),
       lock: (on) => drawing(box('a-acc', 40, 26, 32, 24, 4), h('path', { className: on ? 'a-acc' : 'a-ink2', d: 'M47 26v-6a9 9 0 0 1 18 0v6' }), box('a-text', 47, 36, 18, 2.4, 1.2)),
       shield: (on) => drawing(h('path', { className: on ? 'a-acc' : 'a-ink2', d: 'M56 8l30 10v20c0 18-12 26-30 32-18-6-30-14-30-32V18z' }), h('path', { className: 'a-text', d: 'M44 38l9 9 17-18' })),
+      // The web-lane row art: a browser window (address bar + frame) on the desk,
+      // lit when the window is shown. It replaced the accidental ghost-cursor art.
+      browser: (on) => drawing(...monitor(), box(on ? 'a-acc' : 'a-win', 22, 15, 48, 27, 2.5),
+        h('path', { className: 'a-bar', d: 'M22 17.5a2.5 2.5 0 0 1 2.5-2.5h43a2.5 2.5 0 0 1 2.5 2.5v3.5H22z' }),
+        box('a-pill', 25, 17.6, 26, 4.4, 2.2), h('circle', { className: on ? 'a-dot' : 'a-ink', cx: 66.5, cy: 19.8, r: 1.6 }),
+        box('a-ink', 26, 26, 34, 2.2, 1.1), box('a-ink', 26, 31, 24, 2.2, 1.1), box('a-ink', 26, 36, 30, 2.2, 1.1), box('a-frame', 22, 15, 48, 27, 2.5)),
     };
     function Card({ scope, t, savePatch, as = 'li', idPrefix = 'arya', view }) {
       if (view === 'summary') return h('span', { 'data-arya-summary': true }, t('pluginDescription'), ' ', h('span', { style: { color: 'var(--dsw-alias-label-link,#71a7ff)' } }, t('openSettings')));
@@ -261,6 +342,49 @@ window.__ModuleLoader__.load({
       if ((state.status !== undefined && state.status !== 'ready') || !state.value) return h(props.as, { 'data-arya-unavailable': true }, h('p', { role: 'status' }, props.t(state.status === 'loading' ? 'loadingSettings' : 'notLoaded')), h('button', { type: 'button', onClick: () => window.location.reload() }, props.t('reloadSettings')));
       return h(SettingsCard, props);
     }
+    // The Status panel: this plugin's own loopback route, merged with the facts each
+    // MCP lane publishes at start-up. Read-only; a failure is exactly one line and
+    // never touches the form.
+    function StatusPanel({ t, idPrefix, writable, onResume }) {
+      const [data, setData] = React.useState(null), [error, setError] = React.useState(false);
+      const load = React.useCallback(async () => {
+        try {
+          const response = await fetch(STATUS_PATH, { credentials: 'same-origin', cache: 'no-store' });
+          if (!response.ok) throw Error(String(response.status));
+          const body = await response.json();
+          if (!body || typeof body !== 'object' || !body.plugin) throw Error('shape');
+          setData(body); setError(false);
+        } catch { setData(null); setError(true); }
+      }, []);
+      React.useEffect(() => {
+        load();
+        const timer = setInterval(load, 5000);
+        return () => clearInterval(timer);
+      }, [load]);
+      const row = (key, label, value, tone) => h('div', { className: 'arya-statusrow', key }, h('b', null, t(label)), h('span', { className: tone || undefined }, value));
+      const rows = [];
+      if (data) {
+        const browser = data.lanes?.browser, desktop = data.lanes?.desktop, engines = data.engines || {};
+        const modeName = (mode) => (mode && (t('statusMode') || {})[mode === 'package-bin' ? 'packagebin' : mode]) || mode || t('statusNone');
+        if (browser) rows.push(h('p', { className: 'arya-status-lane', key: 'lane-b' }, t('statusLaneBrowser')), row('b-engine', 'statusEngine', 'agent-browser ' + (engines.versions?.['agent-browser'] || '?')), row('b-native', 'statusNative', modeName(browser.nativeMode) + (browser.native ? ' — ' + browser.native : '')), row('b-profile', 'statusProfile', String(browser.toolsProfile || '?') + ' · ' + (browser.stripMode || '?')));
+        if (desktop) rows.push(h('p', { className: 'arya-status-lane', key: 'lane-d' }, t('statusLaneDesktop')), row('d-engine', 'statusEngine', 'agent-desktop ' + (engines.versions?.['agent-desktop'] || '?')), row('d-tools', 'statusTools', desktop.toolsExposed + ' / ' + desktop.toolsTotal + ' · ' + (desktop.toolPreset || '?')), row('d-timeout', 'engineCallTimeout', String(desktop.engineCallTimeoutMs ?? '?') + ' ' + t('ms')));
+        rows.push(row('mount', 'statusMount', data.mcp?.mounted ? t('statusMounted') : t('statusNotMounted'), data.mcp?.mounted ? 'arya-ok' : 'arya-bad'));
+        for (const engine of data.mcp?.engines || []) rows.push(row('e-' + engine.package, 'statusEngines', engine.package + ' — ' + (engine.ok ? t('engineOk') : t('engineMissing') + (engine.reason ? ' (' + engine.reason + ')' : '')) + (engine.binary ? ' · ' + modeName(engine.binary) : ''), engine.ok ? 'arya-ok' : 'arya-bad'));
+        const takeover = data.takeover || {};
+        rows.push(row('takeover', 'statusTakeover', takeover.running ? t('statusTakeoverRunning') : takeover.paused ? t('statusTakeoverPaused') : t('statusTakeoverIdle'), takeover.running ? 'arya-ok' : takeover.paused ? 'arya-bad' : undefined));
+        if (takeover.paused) rows.push(h('div', { className: 'arya-statusrow', key: 'resume' }, h('b', null, t('resume')), h('span', null, h('button', { type: 'button', className: 'arya-small', disabled: !writable, onClick: onResume }, t('resume')))));
+        const elevated = engines.elevated;
+        rows.push(row('elev', 'statusElevation', elevated === true ? t('elevatedYes') : elevated === false ? t('elevatedNo') : t('elevatedUnknown'), elevated === false ? 'arya-bad' : undefined));
+        if (engines.lease) rows.push(row('lease', 'statusLease', engines.lease.present ? t('leaseYes') : t('leaseNo'), engines.lease.present ? undefined : 'arya-bad'));
+        if (data.driver) rows.push(row('driver', 'statusDriver', String(data.driver.sessionId || '?')));
+      }
+      return h('details', { className: 'arya-detail', 'data-arya-status': 'true' },
+        h('summary', null, t('statusTitle')),
+        h('div', { className: 'arya-section-head', style: { margin: '0 0 4px' } }, h('button', { type: 'button', className: 'arya-small', onClick: load }, t('statusRefresh'))),
+        error ? h('p', { role: 'status', className: 'arya-bad' }, t('statusUnavailable'))
+          : data ? h('div', { 'aria-labelledby': idPrefix + '-status-title' }, ...rows)
+          : h('p', { role: 'status' }, t('loadingSettings')));
+    }
     function SettingsCard({ scope, t, savePatch, as = 'li', idPrefix = 'arya' }) {
       const state = React.useSyncExternalStore((listener) => scope.subscribe(listener), () => scope.getSnapshot());
       const available = state.status === undefined ? state.value !== undefined : state.status === 'ready';
@@ -269,9 +393,10 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = React.useState(saved), [dirty, setDirty] = React.useState(false);
       const [saving, setSaving] = React.useState(false), [message, setMessage] = React.useState(''), [tone, setTone] = React.useState('');
       const [recording, setRecording] = React.useState(false), [recordMessage, setRecordMessage] = React.useState('');
+      const [invalid, setInvalid] = React.useState('');
       const savedKey = JSON.stringify(Object.fromEntries(Object.keys(defaults).map((key) => [key, saved[key]])));
       React.useEffect(() => { if (!dirty) setDraft(saved); }, [savedKey, dirty]);
-      const change = (field, value) => { const next = { ...draft, [field]: value }; setDraft(next); setDirty(Object.keys(defaults).some((key) => !equal(next[key], saved[key]))); setMessage(''); };
+      const change = (field, value) => { const next = { ...draft, [field]: value }; setDraft(next); setDirty(Object.keys(defaults).some((key) => !equal(next[key], saved[key]))); setMessage(''); if (invalid === field) setInvalid(''); };
       React.useEffect(() => {
         if (!recording) return;
         if (!writable || saving) { setRecording(false); return; }
@@ -305,13 +430,42 @@ window.__ModuleLoader__.load({
       };
       const applyOverlaySwitch = (field, value) => applyOverlayPatch({ [field]: value });
       const openProgress = () => applyOverlayPatch({ ...Object.fromEntries(overlayKeys.map((key) => [key, draft[key]])), progressOverlayEnabled: true, progressPreviewToken: Date.now() });
+      // B7: one validator table; the first failure names its field in the status
+      // line, marks that control, and focuses it. The old single sentence made
+      // issue #1's reporter hunt through ten fields for one bad path.
+      const validators = [
+        ['indicatorText', (v) => !String(v ?? '').trim() || String(v).length > 120 || /[\r\n\x00-\x1f]/.test(String(v)), 'invalidText'],
+        ['pointerLabel', (v) => !String(v ?? '').trim() || String(v).trim().length > 16 || /[\r\n\x00-\x1f]/.test(String(v)), 'invalidLabel'],
+        ['indicatorIdleMs', (v) => !Number.isInteger(v) || v < 200 || v > 3000, 'invalidDelay'],
+        ['browserSession', (v) => !!v && !/^[\p{L}\p{N}_-]+$/u.test(v), 'invalidName'],
+        ['browserNamespace', (v) => !!v && !/^[\p{L}\p{N}_-]+$/u.test(v), 'invalidName'],
+        ['browserCdp', (v) => !!v && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(v), 'invalidCdp'],
+        ['browserStateFile', (v) => !!v && !/^(?:[A-Za-z]:[\\/]|\/)/.test(v), 'invalidPath'],
+        ['browserExecutablePath', (v) => !!v && !/^(?:[A-Za-z]:[\\/]|\/)/.test(v), 'invalidPath'],
+        ['browserCaCert', (v) => !!v && !/^(?:[A-Za-z]:[\\/]|\/)/.test(v), 'invalidPath'],
+        ['screenshotDir', (v) => !!v && !/^(?:[A-Za-z]:[\\/]|\/)/.test(v), 'invalidPath'],
+        ['browserIdleTimeout', (v) => !!v && !/^(?:0|[0-9]+(?:\.[0-9]+)?(?:ms|s|m|h|d)?)$/i.test(v), 'invalidDuration'],
+        ['browserAllowedDomains', (v) => String(v ?? '').split(/[,\s]+/).filter(Boolean).some((d) => !/^(?:\*\.)?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(d)), 'invalidDomains'],
+        ['browserConfirmActions', (v) => String(v ?? '').split(/[,\s]+/).filter(Boolean).some((a) => !/^[A-Za-z0-9_:*.-]+$/.test(a)), 'invalidActions'],
+        ['browserDefaultTimeoutMs', (v) => !Number.isInteger(v) || (v !== 0 && (v < 1000 || v > 600000)), 'invalidTimeout'],
+        ['engineCallTimeoutMs', (v) => !Number.isInteger(v) || v < 10000 || v > 300000, 'invalidCallTimeout'],
+        ['leaseRetryBaseMs', (v) => !Number.isInteger(v) || (v !== 0 && (v < 100 || v > 10000)), 'invalidLeaseBase'],
+      ];
       const save = async () => {
-        if (!draft.indicatorText.trim() || draft.indicatorText.length > 120 || /[\r\n\x00-\x1f]/.test(draft.indicatorText) || !draft.pointerLabel.trim() || draft.pointerLabel.trim().length > 16 || /[\r\n\x00-\x1f]/.test(draft.pointerLabel) || !Number.isInteger(draft.indicatorIdleMs) || draft.indicatorIdleMs < 200 || draft.indicatorIdleMs > 3000) { setMessage(t('invalid')); setTone('error'); return; }
-        if ((draft.browserSession && !/^[\p{L}\p{N}_-]+$/u.test(draft.browserSession)) || (draft.browserCdp && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(draft.browserCdp)) || (draft.browserStateFile && !/^(?:[A-Za-z]:[\\/]|\/)/.test(draft.browserStateFile)) || (draft.browserExecutablePath && !/^(?:[A-Za-z]:[\\/]|\/)/.test(draft.browserExecutablePath))) { setMessage(t('invalidBrowser')); setTone('error'); return; }
+        for (const [field, bad, why] of validators) {
+          if (!bad(draft[field])) continue;
+          setInvalid(field);
+          setMessage(t(field) + t('invalidJoin') + t(why));
+          setTone('error');
+          requestAnimationFrame(() => { try { document.getElementById(idPrefix + '-' + field)?.focus(); } catch {} });
+          return;
+        }
+        setInvalid('');
         const patch = Object.fromEntries(Object.keys(defaults).filter((key) => !equal(draft[key], saved[key])).map((key) => [key, draft[key]]));
         if (await run(patch, 'saved')) setDirty(false);
       };
       const disabled = saving || !writable || recording, indicatorDisabled = disabled || !draft.indicatorEnabled;
+      const invalidProps = (field) => ({ 'data-arya-invalid': invalid === field || undefined, 'aria-invalid': invalid === field ? true : undefined });
       const radio = (field, value, label) => h('label', { key: value }, h('input', { type: 'radio', name: idPrefix + '-' + field, id: idPrefix + '-' + field + '-' + value, value, checked: draft[field] === value, disabled: indicatorDisabled, onChange: () => change(field, value) }), label);
       const button = (label, props) => h('button', { type: 'button', ...props }, t(label));
       const info = (key) => h(Info, { id: idPrefix + '-tip-' + key, label: t('moreInfo'), text: t(key) });
@@ -321,12 +475,29 @@ window.__ModuleLoader__.load({
       const toggle = (field, label, locked) => h('input', { id: idPrefix + '-' + field, type: 'checkbox', role: 'switch', 'aria-label': t(label), checked: draft[field], disabled: disabled || locked, onChange: (e) => ['progressOverlayEnabled', 'progressOverlayLocked'].includes(field) ? applyOverlaySwitch(field, e.target.checked) : change(field, e.target.checked) });
       const switchItem = (field, label, hint, art, locked) => item(h('label', { className: 'arya-art', htmlFor: idPrefix + '-' + field, 'aria-hidden': true }, art), title(t(label), hint, { htmlFor: idPrefix + '-' + field }), toggle(field, label, locked));
       const field = (label, control) => h('div', { className: 'arya-field' }, label, control);
+      const text = (field_, placeholder, maxLength) => field(title(t(field_), null, { htmlFor: idPrefix + '-' + field_ }), h('input', { id: idPrefix + '-' + field_, type: 'text', maxLength, placeholder, value: draft[field_], disabled, ...invalidProps(field_), onChange: (e) => change(field_, e.target.value) }));
+      const number = (field_, min, max, step) => field(title(t(field_), field_ + 'Hint', { htmlFor: idPrefix + '-' + field_ }), h('div', { className: 'arya-number' }, h('input', { id: idPrefix + '-' + field_, type: 'number', min, max, step, value: draft[field_], disabled, ...invalidProps(field_), onChange: (e) => change(field_, Number(e.target.value)) })));
       const keycap = (key, label) => h('kbd', { className: 'arya-key', key }, label);
       const shortcutKeys = recording ? [h('span', { key: 'listen' }, t('listening')), h('small', { key: 'cancel' }, t('listeningCancel'))]
         : draft.stopShortcut ? draft.stopShortcut.split('+').flatMap((key, i) => i ? [h('span', { className: 'arya-plus', key: '+' + i }, ' + '), keycap(i, key)] : [keycap(i, key)])
         : [keycap('esc', 'Esc'), h('small', { key: 'default' }, t('noShortcut').slice(3))];
       return h(as, { 'data-arya-settings': 'true' }, h('style', null, css),
         h('header', { className: 'arya-header' }, h('h2', null, t('title')), h('p', null, t('intro'))),
+        // Lane 1 — desktop: how the engine drives, and the call limits that used to
+        // be compiled into the adapter.
+        h('section', { className: 'arya-section', 'data-arya-desktop-settings': true, 'aria-labelledby': idPrefix + '-desktop-title' },
+          head(idPrefix + '-desktop-title', 'desktopTitle', 'desktopHint'),
+          h('div', { className: 'arya-grid' },
+            switchItem('headedDefault', 'headedDefault', 'headedDefaultHint', arts.keyboard(draft.headedDefault)),
+            switchItem('overlayDefault', 'overlayDefault', 'overlayDefaultHint', arts.cursor(draft.overlayDefault)),
+            switchItem('driverLockEnabled', 'driverLock', 'driverLockHint', arts.shield(draft.driverLockEnabled)),
+            field(title(t('toolPreset'), 'toolPresetHint', { htmlFor: idPrefix + '-toolPreset' }), h('select', { id: idPrefix + '-toolPreset', value: draft.toolPreset, disabled, onChange: (e) => change('toolPreset', e.target.value) }, h('option', { value: 'lite' }, t('toolPresetLite')), h('option', { value: 'lazy' }, t('toolPresetLazy'))))),
+          h('details', { className: 'arya-detail' }, h('summary', null, t('advanced')),
+            h('div', { className: 'arya-fields' },
+              number('engineCallTimeoutMs', 10000, 300000, 1000),
+              number('leaseRetryBaseMs', 0, 10000, 100),
+              text('screenshotDir', 'C:\\Users\\you\\Pictures\\arya', 400)))),
+        // Lane 2 — the takeover indicator.
         h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-indicator-title' },
           head(idPrefix + '-indicator-title', 'indicatorTitle', 'indicatorHint', button('preview', { className: 'arya-small', disabled: disabled || dirty || (!draft.indicatorEnabled && !draft.cursorIndicatorEnabled), onClick: () => run({ previewToken: Date.now() }, 'previewed'), title: dirty ? t('previewHint') : undefined })),
           h('div', { className: 'arya-grid' },
@@ -335,42 +506,29 @@ window.__ModuleLoader__.load({
           h('details', { className: 'arya-detail' }, h('summary', null, t('appearance')),
             h('div', { className: 'arya-fields' },
               field(title(t('position'), null, { id: idPrefix + '-position-label' }), h('div', { className: 'arya-segment', role: 'radiogroup', 'aria-labelledby': idPrefix + '-position-label' }, radio('indicatorPosition', 'top', t('top')), radio('indicatorPosition', 'bottom', t('bottom')))),
-              field(title(t('delay'), 'delayHint', { htmlFor: idPrefix + '-delay' }), h('div', { className: 'arya-number' }, h('input', { id: idPrefix + '-delay', type: 'number', min: 200, max: 3000, step: 100, value: draft.indicatorIdleMs, disabled: indicatorDisabled, onChange: (e) => change('indicatorIdleMs', Number(e.target.value)) }), h('span', null, t('ms')))),
-              field(title(t('text'), null, { htmlFor: idPrefix + '-text' }), h('input', { id: idPrefix + '-text', type: 'text', maxLength: 120, value: draft.indicatorText, disabled: indicatorDisabled, onChange: (e) => change('indicatorText', e.target.value) })),
-              field(title(t('cursorLabel'), 'cursorLabelHint', { htmlFor: idPrefix + '-pointerLabel' }), h('input', { id: idPrefix + '-pointerLabel', type: 'text', maxLength: 16, value: draft.pointerLabel, disabled: disabled || !draft.cursorIndicatorEnabled, onChange: (e) => change('pointerLabel', e.target.value) })),
+              field(title(t('delay'), 'delayHint', { htmlFor: idPrefix + '-delay' }), h('div', { className: 'arya-number' }, h('input', { id: idPrefix + '-delay', type: 'number', min: 200, max: 3000, step: 100, value: draft.indicatorIdleMs, disabled: indicatorDisabled, ...invalidProps('indicatorIdleMs'), onChange: (e) => change('indicatorIdleMs', Number(e.target.value)) }), h('span', null, t('ms')))),
+              field(title(t('text'), null, { htmlFor: idPrefix + '-text' }), h('input', { id: idPrefix + '-text', type: 'text', maxLength: 120, value: draft.indicatorText, disabled: indicatorDisabled, ...invalidProps('indicatorText'), onChange: (e) => change('indicatorText', e.target.value) })),
+              field(title(t('cursorLabel'), 'cursorLabelHint', { htmlFor: idPrefix + '-pointerLabel' }), h('input', { id: idPrefix + '-pointerLabel', type: 'text', maxLength: 16, value: draft.pointerLabel, disabled: disabled || !draft.cursorIndicatorEnabled, ...invalidProps('pointerLabel'), onChange: (e) => change('pointerLabel', e.target.value) })),
               field(title(t('remoteVisible'), 'remoteVisibleHint', { htmlFor: idPrefix + '-remoteIndicatorVisible' }), toggle('remoteIndicatorVisible', 'remoteVisible'))))),
+        // Lane 3 — the progress overlay, now with its content mode reachable.
         h('section', { className: 'arya-section', 'data-arya-progress-settings': true, 'aria-labelledby': idPrefix + '-progress-title' },
           head(idPrefix + '-progress-title', 'progressTitle', null, button('openProgress', { 'data-arya-open-progress': true, className: 'arya-small', disabled, onClick: openProgress })),
           h('div', { className: 'arya-grid' }, switchItem('progressOverlayEnabled', 'progressOverlay', 'progressOverlayHint', arts.progress(draft.progressOverlayEnabled)), switchItem('progressOverlayLocked', 'progressLocked', 'progressLockedHint', arts.lock(draft.progressOverlayLocked))),
-          h('details', { className: 'arya-detail', 'data-arya-progress-details': true }, h('summary', null, t('appearance')),
+          h('details', { className: 'arya-detail', 'data-arya-progress-details': true }, h('summary', null, t('progressAppearance')),
             h('p', { className: 'arya-hint' }, t('progressSync')),
             h('div', { className: 'arya-fields' },
+              field(title(t('progressMode'), 'progressModeHint', { id: idPrefix + '-progressMode-label' }), h('div', { className: 'arya-segment', role: 'radiogroup', 'aria-labelledby': idPrefix + '-progressMode-label' },
+                ...[['summary', 'progressModeSummary'], ['source', 'progressModeSource']].map(([value, label]) => h('label', { key: value }, h('input', { type: 'radio', name: idPrefix + '-progressOverlayMode', id: idPrefix + '-progressOverlayMode-' + value, value, checked: draft.progressOverlayMode === value, disabled, onChange: () => change('progressOverlayMode', value) }), t(label))))),
               ...[['progressOverlayOpacity', 'progressOpacity', 20, 100], ['progressOverlayWidth', 'progressWidth', 240, 1600], ['progressOverlayHeight', 'progressHeight', 160, 1600]].map(([key, label, min, max]) => field(title(t(label), null, { htmlFor: idPrefix + '-' + key }), h('input', { id: idPrefix + '-' + key, type: 'number', min, max, value: draft[key], disabled, onChange: (e) => change(key, Number(e.target.value)) }))),
               field(title(t('progressPosition'), null, { htmlFor: idPrefix + '-progressOverlayPosition' }), h('select', { id: idPrefix + '-progressOverlayPosition', value: draft.progressOverlayPosition, disabled, onChange: (e) => change('progressOverlayPosition', e.target.value) }, ...['top-right', 'top-left', 'bottom-right', 'bottom-left', 'custom'].map((key, index) => h('option', { key, value: key }, t(['progress_topRight', 'progress_topLeft', 'progress_bottomRight', 'progress_bottomLeft', 'progress_custom'][index]))))),
               ...[['progressOverlayX', 'progressX'], ['progressOverlayY', 'progressY']].map(([key, label]) => field(title(t(label), null, { htmlFor: idPrefix + '-' + key }), h('input', { id: idPrefix + '-' + key, type: 'number', min: -32768, max: 32767, value: draft[key], disabled: disabled || draft.progressOverlayPosition !== 'custom', onChange: (e) => change(key, Number(e.target.value)) }))),
               field(title(t('progressShortcut'), 'progressShortcutHint', { htmlFor: idPrefix + '-progressLockShortcut' }), h('input', { id: idPrefix + '-progressLockShortcut', type: 'text', value: draft.progressLockShortcut, placeholder: 'Ctrl+Alt+P', maxLength: 50, disabled, onChange: (e) => change('progressLockShortcut', e.target.value) }))))),
-        h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-behavior-title' },
-          head(idPrefix + '-behavior-title', 'behaviorTitle'),
-          h('div', { className: 'arya-grid' },
-            switchItem('headedDefault', 'headedDefault', 'headedDefaultHint', arts.keyboard(draft.headedDefault)),
-            switchItem('overlayDefault', 'overlayDefault', 'overlayDefaultHint', arts.cursor(draft.overlayDefault)),
-            switchItem('driverLockEnabled', 'driverLock', 'driverLockHint', arts.shield(draft.driverLockEnabled)),
-            field(title(t('toolPreset'), 'toolPresetHint', { htmlFor: idPrefix + '-toolPreset' }), h('select', { id: idPrefix + '-toolPreset', value: draft.toolPreset, disabled, onChange: (e) => change('toolPreset', e.target.value) }, h('option', { value: 'lite' }, t('toolPresetLite')), h('option', { value: 'lazy' }, t('toolPresetLazy')))))),
-        h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-browser-title' },
-          head(idPrefix + '-browser-title', 'browserTitle'),
-          h('div', { className: 'arya-grid' },
-            field(title(t('browserTools'), 'browserToolsHint', { htmlFor: idPrefix + '-browserTools' }), h('select', { id: idPrefix + '-browserTools', value: draft.browserTools, disabled, onChange: (e) => change('browserTools', e.target.value) }, ...['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'].map((key) => h('option', { key, value: key }, key)))),
-            field(title(t('browserFlags'), 'browserFlagsHint', { htmlFor: idPrefix + '-browserToolFlags' }), h('select', { id: idPrefix + '-browserToolFlags', value: draft.browserToolFlags, disabled, onChange: (e) => change('browserToolFlags', e.target.value) }, ...[['strip', 'browserFlagsStrip'], ['lean', 'browserFlagsLean'], ['off', 'browserFlagsOff']].map(([value, label]) => h('option', { key: value, value }, t(label))))),
-            switchItem('browserHeaded', 'browserHeaded', 'browserHeadedHint', arts.monitor && arts.monitor(draft.browserHeaded) || arts.cursor(draft.browserHeaded))),
-          h('div', { className: 'arya-fields' },
-            field(title(t('browserProfile'), 'browserProfileHint', { htmlFor: idPrefix + '-browserProfile' }), h('input', { id: idPrefix + '-browserProfile', type: 'text', maxLength: 200, placeholder: 'Default', value: draft.browserProfile, disabled, onChange: (e) => change('browserProfile', e.target.value) })),
-            field(title(t('browserSession'), 'browserSessionHint', { htmlFor: idPrefix + '-browserSession' }), h('input', { id: idPrefix + '-browserSession', type: 'text', maxLength: 64, placeholder: 'arya', value: draft.browserSession, disabled, onChange: (e) => change('browserSession', e.target.value) })),
-            field(title(t('browserCdp'), 'browserCdpHint', { htmlFor: idPrefix + '-browserCdp' }), h('input', { id: idPrefix + '-browserCdp', type: 'text', maxLength: 200, placeholder: 'http://127.0.0.1:9222', value: draft.browserCdp, disabled, onChange: (e) => change('browserCdp', e.target.value) })),
-            field(title(t('browserStateFile'), 'browserStateFileHint', { htmlFor: idPrefix + '-browserStateFile' }), h('input', { id: idPrefix + '-browserStateFile', type: 'text', maxLength: 400, value: draft.browserStateFile, disabled, onChange: (e) => change('browserStateFile', e.target.value) })),
-            field(title(t('browserExecutablePath'), 'browserExecutablePathHint', { htmlFor: idPrefix + '-browserExecutablePath' }), h('input', { id: idPrefix + '-browserExecutablePath', type: 'text', maxLength: 400, placeholder: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', value: draft.browserExecutablePath, disabled, onChange: (e) => change('browserExecutablePath', e.target.value) }))),
-          h('p', { className: 'arya-hint' }, t('browserRestart'))),
+        // Lane 4 — stop and resume: Esc always works, a custom chord is optional,
+        // and a stopped series is resumed from here (the previewed hint says so).
         h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-stop-title' },
-          head(idPrefix + '-stop-title', 'stop', null, button('clearShortcut', { className: 'arya-small', disabled: disabled || !draft.stopShortcut, onClick: () => { change('stopShortcut', ''); setRecordMessage(''); } })),
+          head(idPrefix + '-stop-title', 'stop', null,
+            button('resume', { 'data-arya-resume': true, className: 'arya-small', disabled, title: t('resumeHint'), onClick: () => run({ resumeToken: Date.now() }, 'resumed') }),
+            button('clearShortcut', { className: 'arya-small', disabled: disabled || !draft.stopShortcut, onClick: () => { change('stopShortcut', ''); setRecordMessage(''); } })),
           h('div', { className: 'arya-grid' },
             item(h('div', { className: 'arya-art', 'aria-hidden': true }, arts.esc()), title(t('escTitle'), 'stopHint'), h('span', { className: 'arya-caption' }, t('escAlways'))),
             h('div', { className: 'arya-item', 'data-arya-shortcut': 'true' },
@@ -378,12 +536,46 @@ window.__ModuleLoader__.load({
               h('div', { className: 'arya-item-main' }, title(t('extraStop'), 'shortcutHint'),
                 button(recording ? 'cancelRecord' : draft.stopShortcut ? 'rerecord' : 'record', { className: 'arya-small', disabled: saving || !writable, onClick: () => { setRecordMessage(''); setRecording(!recording); } })))),
           recordMessage && h('p', { role: 'status', className: 'arya-hint' }, t(recordMessage))),
+        // Lane 5 — the web lane, grouped by what each block actually changes.
+        h('section', { className: 'arya-section', 'data-arya-browser-settings': true, 'aria-labelledby': idPrefix + '-browser-title' },
+          head(idPrefix + '-browser-title', 'browserTitle', 'browserRestart'),
+          h('p', { className: 'arya-subhead' }, t('webToolsGroup')),
+          h('div', { className: 'arya-grid' },
+            field(title(t('browserTools'), 'browserToolsHint', { htmlFor: idPrefix + '-browserTools' }), h('select', { id: idPrefix + '-browserTools', value: draft.browserTools, disabled, onChange: (e) => change('browserTools', e.target.value) }, ...['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'webmcp', 'all'].map((key) => h('option', { key, value: key }, key)))),
+            field(title(t('browserFlags'), 'browserFlagsHint', { htmlFor: idPrefix + '-browserToolFlags' }), h('select', { id: idPrefix + '-browserToolFlags', value: draft.browserToolFlags, disabled, onChange: (e) => change('browserToolFlags', e.target.value) }, ...[['strip', 'browserFlagsStrip'], ['lean', 'browserFlagsLean'], ['off', 'browserFlagsOff']].map(([value, label]) => h('option', { key: value, value }, t(label)))))),
+          h('p', { className: 'arya-subhead' }, t('webBrowserGroup')),
+          h('div', { className: 'arya-grid' },
+            switchItem('browserHeaded', 'browserHeaded', 'browserHeadedHint', arts.browser(draft.browserHeaded))),
+          h('div', { className: 'arya-fields arya-wide' },
+            text('browserProfile', 'Default', 200),
+            text('browserSession', 'arya', 64),
+            text('browserCdp', 'http://127.0.0.1:9222', 200),
+            text('browserStateFile', '', 400),
+            text('browserExecutablePath', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 400)),
+          h('p', { className: 'arya-subhead' }, t('webNetworkGroup')),
+          h('div', { className: 'arya-fields arya-wide' },
+            text('browserAllowedDomains', 'example.com, *.example.org', 400),
+            text('browserNamespace', 'arya', 64),
+            text('browserIdleTimeout', '30m', 32),
+            text('browserCaCert', 'C:\\certs\\internal-ca.pem', 400),
+            number('browserDefaultTimeoutMs', 0, 600000, 1000),
+            text('browserConfirmActions', 'flow_write:deploy, plugin:vault:credential.read', 400),
+            field(title(t('browserUseSystemCa'), 'browserUseSystemCaHint', { htmlFor: idPrefix + '-browserUseSystemCa' }), toggle('browserUseSystemCa', 'browserUseSystemCa'))),
+          h('p', { className: 'arya-hint' }, t('browserRestart'))),
+        // Lane 6 — what is actually running, from the process that started it.
+        h('section', { className: 'arya-section', 'aria-labelledby': idPrefix + '-status-title' },
+          h('h3', { id: idPrefix + '-status-title' }, t('statusTitle')),
+          h(StatusPanel, { t, idPrefix, writable, onResume: () => run({ resumeToken: Date.now() }, 'resumed') })),
         !writable && h('p', { role: 'status', 'data-tone': 'error' }, t(available ? 'unavailable' : 'notLoaded')),
         h('footer', { className: 'arya-footer' }, h('span', { className: 'arya-status', role: 'status', 'aria-live': 'polite', 'data-tone': message ? tone : undefined }, message || t(dirty ? 'dirty' : 'clean')),
-          h('div', { className: 'arya-actions' }, button('discard', { disabled: !dirty || saving || recording, onClick: () => { setDraft(saved); setDirty(false); setMessage(''); setRecordMessage(''); } }), button('save', { className: 'arya-primary', disabled: !dirty || disabled, onClick: save }))));
+          h('div', { className: 'arya-actions' }, button('discard', { disabled: !dirty || saving || recording, onClick: () => { setDraft(saved); setDirty(false); setMessage(''); setRecordMessage(''); setInvalid(''); } }), button('save', { className: 'arya-primary', disabled: !dirty || disabled, onClick: save }))));
     }
-    const actionKeys = { snapshot: 'see', screenshot: 'see', list_windows: 'windows', find: 'findControl', get: 'read', is: 'read', click: 'clickAction', set_value: 'valueAction', type: 'typeAction', press: 'keyAction', scroll: 'scrollAction', wait: 'waitAction', ocr: 'ocrAction', launch: 'launchAction', batch: 'seriesTitle', tools: 'toolsAction' };
-    const browserActionKeys = { open: 'openPage', read: 'readPage', snapshot: 'lookPage', click: 'clickPage', dblclick: 'clickPage', fill: 'typePage', type: 'typePage', press: 'keyPage', screenshot: 'shotPage', eval: 'evalPage', tab_new: 'tabsPage', tab_list: 'tabsPage', tab_switch: 'tabsPage', tab_close: 'tabsPage', close: 'closePage', wait_ms: 'waitPage', wait_for_selector: 'waitPage', wait_for_text: 'waitPage', wait_for_load: 'waitPage', get_text: 'readPage', get_url: 'infoPage', get_title: 'infoPage', scroll: 'scrollPage', back: 'navPage', forward: 'navPage', reload: 'navPage', select: 'selectPage', check: 'togglePage', uncheck: 'togglePage' };
+    // Chat rows, keyed by wire tool name per lane (AGENTS.md rule 9). The desktop
+    // table used to cover 16 of the 28 exposed tools and the web table 29 names;
+    // both now cover every tool the lanes can expose (28 + 34 = 62 keys), so no
+    // call falls back to the generic card.
+    const actionKeys = { snapshot: 'see', screenshot: 'see', list_windows: 'windows', find: 'findControl', get: 'read', is: 'read', click: 'clickAction', set_value: 'valueAction', type: 'typeAction', press: 'keyAction', scroll: 'scrollAction', wait: 'waitAction', ocr: 'ocrAction', launch: 'launchAction', batch: 'seriesTitle', tools: 'toolsAction', check: 'toggleControl', uncheck: 'toggleControl', toggle: 'toggleControl', expand: 'expandControl', collapse: 'expandControl', scroll_to: 'scrollTo', select: 'chooseOption', focus: 'focusTarget', focus_window: 'focusTarget', double_click: 'clickAction', right_click: 'clickAction', clear: 'clearField' };
+    const browserActionKeys = { open: 'openPage', read: 'readPage', snapshot: 'lookPage', click: 'clickPage', dblclick: 'clickPage', fill: 'typePage', type: 'typePage', press: 'keyPage', screenshot: 'shotPage', eval: 'evalPage', tab_new: 'tabsPage', tab_list: 'tabsPage', tab_switch: 'tabsPage', tab_close: 'tabsPage', close: 'closePage', wait_ms: 'waitPage', wait_for_selector: 'waitPage', wait_for_text: 'waitPage', wait_for_load: 'waitPage', get_text: 'readPage', get_url: 'infoPage', get_title: 'infoPage', scroll: 'scrollPage', back: 'navPage', forward: 'navPage', reload: 'navPage', select: 'selectPage', check: 'togglePage', uncheck: 'togglePage', flow_run: 'flowRun', flow_save: 'flowSave', flow_list: 'flowInspect', flow_steps: 'flowInspect', tools_profiles: 'toolsAction' };
     const isBrowserTool = (name) => /^mcp__arya_browser__/.test(name || '');
     const shortTool = (name) => String(name || '').replace(/^mcp__arya_desktop__/, '').replace(/^mcp__arya_browser__agent_browser_/, '');
     const desktopTool = (name) => /^mcp__arya_desktop__(?!tools$)[a-z_]+$/.test(name || '') || (/^mcp__arya_browser__agent_browser_[a-z_]+$/.test(name || '') && name !== 'mcp__arya_browser__agent_browser_close');

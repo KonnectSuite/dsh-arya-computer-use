@@ -2,6 +2,22 @@
 // trimmed to the takeover/indicator fields this plugin uses, plus behavior
 // switches for the adapter (headedDefault, overlayDefault, driverLockEnabled).
 
+import { readFileSync } from 'node:fs';
+
+// The one JSON reader for every control-file read in this package (settings,
+// takeover state, activity, target, layout). The control files are documented as
+// hand-editable, and Windows editors — Notepad included — write a UTF-8 BOM by
+// default, which JSON.parse rejects ("Unexpected token '﻿'"). Every reader here
+// used to swallow that in a catch and fall back to defaults, so a user could
+// edit settings.json and see nothing happen, with no error anywhere. Measured
+// 2026-11-20: a BOM'd control file made the browser lane start with zero flags
+// and an empty env while the file plainly named them. Strip the BOM, keep the
+// throw for genuinely broken JSON so callers still report it.
+export function readJsonFile(file) {
+  const raw = readFileSync(file, 'utf8');
+  return JSON.parse(raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw);
+}
+
 export const DEFAULT_SETTINGS = Object.freeze({
   // 'source' paints the assistant's raw text stream on the user's desktop. The
   // default is the condensed lane; 'source' stays available for anyone who wants
@@ -14,6 +30,13 @@ export const DEFAULT_SETTINGS = Object.freeze({
   headedDefault: false, overlayDefault: true, driverLockEnabled: true, toolPreset: 'lite',
   browserTools: 'core', browserProfile: '', browserSession: '', browserStateFile: '', browserCdp: '', browserHeaded: false,
   browserToolFlags: 'strip', browserExecutablePath: '',
+  // Host-wide web-lane flags the launcher really passes (1.0.13): domains, idle
+  // shutdown, daemon namespace, certificate trust, default call timeout, and the
+  // consent list for upstream policy actions. Empty = the engine's own default.
+  browserAllowedDomains: '', browserIdleTimeout: '', browserNamespace: '', browserCaCert: '',
+  browserUseSystemCa: false, browserDefaultTimeoutMs: 0, browserConfirmActions: '',
+  // Desktop-lane knobs that were adapter constants before 1.0.13.
+  engineCallTimeoutMs: 150000, leaseRetryBaseMs: 800, screenshotDir: '',
 });
 
 export const STOP_SHORTCUT_PATTERN = /^(?:(?:Ctrl\+)?(?:Alt\+)?(?:Shift\+)?(?:Win\+)?(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Enter|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Pause|CapsLock|NumLock|ScrollLock))?$/;
@@ -37,10 +60,10 @@ export function normalizeStopShortcut(value) {
 // returned so it can be reported. Values typed on the settings page (shortcut,
 // text, numbers) stay strict, so a mistyped one is still refused when saved.
 const SETTING_CHOICES = { indicatorPosition: ['top', 'bottom'] };
-const SETTING_SWITCHES = ['progressOverlayEnabled', 'indicatorEnabled', 'cursorIndicatorEnabled', 'remoteIndicatorVisible', 'progressOverlayLocked', 'headedDefault', 'overlayDefault', 'driverLockEnabled', 'browserHeaded'];
+const SETTING_SWITCHES = ['progressOverlayEnabled', 'indicatorEnabled', 'cursorIndicatorEnabled', 'remoteIndicatorVisible', 'progressOverlayLocked', 'headedDefault', 'overlayDefault', 'driverLockEnabled', 'browserHeaded', 'browserUseSystemCa'];
 SETTING_CHOICES.progressOverlayPosition = ['top-right','top-left','bottom-right','bottom-left','custom'];
 SETTING_CHOICES.progressOverlayMode = ['source','summary'];
-SETTING_CHOICES.browserTools = ['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'];
+SETTING_CHOICES.browserTools = ['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'webmcp', 'all'];
 SETTING_CHOICES.browserToolFlags = ['strip', 'lean', 'off'];
 SETTING_CHOICES.toolPreset = ['lite', 'lazy'];
 export function repairStaleSettings(input) {
@@ -87,6 +110,28 @@ export function normalizeSettings(input = {}) {
   if (value.browserCdp && !/^(?:\d{1,5}|https?:\/\/\S+|wss?:\/\/\S+)$/.test(value.browserCdp)) throw new Error('browserCdp must be a port, an http(s):// URL or a ws:// URL');
   if (value.browserStateFile && !/^(?:[A-Za-z]:[\\/]|\/)/.test(value.browserStateFile)) throw new Error('browserStateFile must be an absolute path');
   if (value.browserExecutablePath && !/^(?:[A-Za-z]:[\\/]|\/)/.test(value.browserExecutablePath)) throw new Error('browserExecutablePath must be an absolute path');
+  if (value.screenshotDir && !/^(?:[A-Za-z]:[\\/]|\/)/.test(value.screenshotDir)) throw new Error('screenshotDir must be an absolute path, or empty for the plugin folder');
+  if (value.browserCaCert && !/^(?:[A-Za-z]:[\\/]|\/)/.test(value.browserCaCert)) throw new Error('browserCaCert must be an absolute path to a PEM file');
+  // agent-browser takes these as a comma-joined list / a single value; keep them
+  // one-line and shape-checked so a bad value fails at save, not at daemon start.
+  for (const key of ['browserAllowedDomains', 'browserIdleTimeout', 'browserNamespace', 'browserCaCert', 'browserConfirmActions', 'screenshotDir']) {
+    if (typeof value[key] !== 'string') throw new Error(`${key} must be a string`);
+    if (/[\r\n\x00-\x1f]/.test(value[key])) throw new Error(`${key} must be one line`);
+    value[key] = value[key].trim();
+  }
+  if (value.browserNamespace && !/^[\p{L}\p{N}_-]+$/u.test(value.browserNamespace)) throw new Error('browserNamespace may contain letters, numbers, hyphens and underscores');
+  if (value.browserIdleTimeout && !/^(?:0|[0-9]+(?:\.[0-9]+)?(?:ms|s|m|h|d)?)$/i.test(value.browserIdleTimeout)) throw new Error('browserIdleTimeout must be a duration such as 45s, 30m, 1h, or 0 to disable');
+  for (const entry of value.browserAllowedDomains.split(/[,\s]+/).filter(Boolean)) {
+    if (!/^(?:\*\.)?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(entry)) throw new Error(`browserAllowedDomains: "${entry}" is not a domain pattern`);
+  }
+  for (const entry of value.browserConfirmActions.split(/[,\s]+/).filter(Boolean)) {
+    if (!/^[A-Za-z0-9_:*.-]+$/.test(entry)) throw new Error(`browserConfirmActions: "${entry}" is not a policy action id`);
+  }
+  if (!Number.isInteger(value.browserDefaultTimeoutMs) || value.browserDefaultTimeoutMs < 0 || value.browserDefaultTimeoutMs > 600000) throw new Error('browserDefaultTimeoutMs must be 0 (engine default) or 1000–600000');
+  if (value.browserDefaultTimeoutMs > 0 && value.browserDefaultTimeoutMs < 1000) throw new Error('browserDefaultTimeoutMs must be 0 (engine default) or at least 1000');
+  if (!Number.isInteger(value.engineCallTimeoutMs) || value.engineCallTimeoutMs < 10000 || value.engineCallTimeoutMs > 300000) throw new Error('engineCallTimeoutMs must be 10000–300000');
+  if (!Number.isInteger(value.leaseRetryBaseMs) || value.leaseRetryBaseMs < 0 || value.leaseRetryBaseMs > 10000) throw new Error('leaseRetryBaseMs must be 0 (no retry) or 100–10000');
+  if (value.leaseRetryBaseMs > 0 && value.leaseRetryBaseMs < 100) throw new Error('leaseRetryBaseMs must be 0 (no retry) or at least 100');
   for (const key of ['resumeToken', 'previewToken', 'progressPreviewToken']) {
     if (!Number.isSafeInteger(value[key]) || value[key] < 0) throw new Error(`${key} must be a nonnegative integer`);
   }

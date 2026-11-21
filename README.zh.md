@@ -54,9 +54,11 @@ MCP——[`agent-desktop`](https://github.com/vercel-labs/agent-desktop)（Windo
 （`ctx.plugin(<bridge>, …)`），bundle patch 里没有绝对路径，也没有 `npx` 子进程——任何机器上安装
 效果一致。
 
-插件管理器默认拦截依赖的构建脚本。引擎（`agent-desktop`、`agent-browser`）在 postinstall 脚本里
-下载原生二进制；安装时批准这两个构建，或由 1.0.1+ 在启动时自行修复——状态路由会在
-`mcp.engines` 下报告结果。
+插件管理器默认拦截依赖的构建脚本。只有 **agent-desktop** 需要批准一个：它的 postinstall 会下载原生
+二进制。**agent-browser** 0.43.0 把原生二进制作为*可选平台包*（`@agent-browser/cli-win32-x64-msvc`
+等）交付——普通依赖安装，完全不跑脚本——启动器会在 npm/pnpm 放置它的位置解析到它。引擎安装被拦截或
+不完整时会在启动时自行修复；状态路由在 `mcp.engines` 下报告结果，**设置 → Computer Use → 状态**
+会显示每条通道实际解析到的模式。
 
 ### 从 npm 安装
 
@@ -97,12 +99,21 @@ MCP 通道同样进程内挂载，源码安装和仓库安装行为完全一致�
 | 步骤面板详细度 | `summary` | 屏幕步骤面板打印的内容：`summary` = 简短动作行，`source` = 助手原始文本流（旧默认——会把模型文本画在你的桌面上） |
 | 停止快捷键 | Esc | 全局急停；合成按键会被忽略，所以需要真实按键。它同时拦住驱动：本轮桌面输入工具返回 `COMPUTER_USE_STOPPED_BY_USER`（读取仍可用） |
 | 工具预设 | `lite` | `lite` 直接列出全部 28 个桌面工具；`lazy` 从 tools/snapshot/click 起步，其余按需出现 |
-| 工具档位（网页） | `core` | agent-browser 工具档位：core 29、network 9、state 27、debug 40、tabs 13、react 8、mobile 15、webmcp 4、all 156 |
+| 工具档位（网页） | `core` | agent-browser 工具档位：core 33、network 9、state 27、debug 40、tabs 13、react 8、mobile 15、webmcp 4、all 160 |
 | Chrome 配置 / Session | – / `arya` | 复用 Chrome 登录状态并命名浏览器会话 |
 | 连接我的浏览器 | – | `--cdp` 端口或 URL，接入你已经打开的 Chrome |
 | 保存的登录状态 | – | 指向 cookies+localStorage JSON 的绝对路径 |
 | 浏览器程序路径 | – | 网页通道自启浏览器时的 msedge.exe / chrome.exe / brave.exe 绝对路径；留空则自动查找系统 Chrome |
 | 显示浏览器窗口 | 关 | 网页通道使用 `--headed` |
+| 允许域名 | – | 全局域名白名单（`AGENT_BROWSER_ALLOWED_DOMAINS`）——引擎只经这条路径执行，`--allowed-domains` 参数实测无效。它要求全新的浏览器上下文：先清空 *Chrome 配置* 和 *Session* |
+| 浏览器空闲超时 | 引擎默认（1 小时） | 网页通道守护进程的 `--idle-timeout`：`45s`、`30m`、`1h`；`0` 永不空闲 |
+| 浏览器命名空间 | – | `--namespace`：把网页通道守护进程的 socket 与还原状态和同机其他 agent-browser 使用者隔离开 |
+| 自定义 CA 文件 / 使用系统 CA | – / 关 | 应对企业 TLS 拦截的 `--ca-cert <path>` 与 `--use-system-ca` |
+| 浏览器调用超时 | 引擎默认（120 秒） | `AGENT_BROWSER_DEFAULT_TIMEOUT`，单位毫秒——网页工具的单次调用上限 |
+| 需确认的动作 | – | `--confirm-actions` 模式（如 `flow_write:*`）：引擎未经批准拒绝执行；绝不会自动放行 |
+| 引擎调用上限 | 150000 毫秒 | 桌面适配层对每条引擎命令自身的硬超时——卡住的驱动会返回超时说明，而不是干等 |
+| 锁重试基数 | 800 毫秒 | 点击阶梯回应锁竞争前的退避（每次翻倍）；`0` 立即回答 |
+| 截图目录 | 插件的 `screenshots/` | `screenshot` 与 `ocr` 写出 PNG 的绝对目录 |
 
 ## 工具预设
 
@@ -121,11 +132,23 @@ MCP 通道同样进程内挂载，源码安装和仓库安装行为完全一致�
 一个透明的 stdio 管道，读取控制文件，用设置项启动真正的服务器：
 
 ```
-node mcp/browser-launcher.mjs          # → agent-browser mcp --tools core [--profile X] [--session Y] [--state Z] [--cdp ...] [--headed]
+node mcp/browser-launcher.mjs   # → agent-browser mcp --tools core [--profile X] [--session Y] [--state Z]
+                                #     [--cdp …] [--idle-timeout T] [--namespace N] [--ca-cert P] [--use-system-ca]
+                                #     [--confirm-actions PATTERN]… [--headed]
 ```
 
 登录态复用和接入自己的 Chrome 都是设置项，不是手工改通道行。网页通道的设置在下次 MCP 重启时
 生效；设置页会说明这一点。
+
+启动器自己解析引擎的原生程序。0.43.0 的 `bin/agent-browser.js` 只是一层 shim——真正的二进制作为可选
+平台包交付——所以启动器经引擎自身的锚点（引擎 `package.json` 上的 `createRequire`）找到它，并直接
+启动原生程序。这完全绕开了 shim 的守护进程启动（控制台窗口 bug，issue #2，不可能来自我们的通道），
+而 `control/info-browser.json` 会记录实际解析到的模式：`package-bin`（shim 旁的副本）或
+`platform-package`（可选依赖）。
+
+全局网页参数——空闲超时、命名空间、CA、确认模式——以及域名白名单（只走环境变量；实测参数版无效）
+都由启动器应用。这正是*精简工具 schema* 诚实的前提：`strip` 从 core 档位移除 52 处参数键（其 33 个
+工具共 60 个唯一键），网页通道的 schema 负载从 24,594 B 降到 17,793 B（每个会话约 1.7k token）。
 
 ## 点击是如何工作的
 
@@ -187,11 +210,11 @@ NOTICE.md             引擎署名（Apache-2.0）
 
 ## 引擎（不内嵌——固定版本的 npm 依赖）
 
-- [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) `1.2.0`（Apache-2.0）——辅助功能
+- [`agent-desktop`](https://github.com/vercel-labs/agent-desktop) `1.3.1`（Apache-2.0）——辅助功能
   树电脑操控 CLI，npm 提供 Windows 原生二进制。参考镜像：
   [KonnectSuite/dsh-arya-agent-desktop](https://github.com/KonnectSuite/dsh-arya-agent-desktop)。
-- [`agent-browser`](https://github.com/vercel-labs/agent-browser) `0.41.2`（Apache-2.0）——经 CDP
-  的网页通道（`agent-browser mcp`）。
+- [`agent-browser`](https://github.com/vercel-labs/agent-browser) `0.43.0`（Apache-2.0）——经 CDP
+  的网页通道（`agent-browser mcp`）；需要 Node 22+，原生二进制以可选平台包安装，不需要构建脚本。
 
 署名与许可边界见 [NOTICE.md](NOTICE.md)。
 

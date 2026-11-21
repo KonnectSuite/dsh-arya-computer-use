@@ -18,12 +18,12 @@
 
 import z from '@deepseek-ai/schemastery';
 import os from 'node:os';
-import { readFile, readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFile, readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { DEFAULT_SETTINGS, normalizeSettings, STOP_SHORTCUT_PATTERN, repairStaleSettings } from './mcp/settings.mjs';
+import { DEFAULT_SETTINGS, normalizeSettings, STOP_SHORTCUT_PATTERN, repairStaleSettings, readJsonFile } from './mcp/settings.mjs';
 import { TakeoverControl, atomicJson } from './mcp/takeover.mjs';
 import { installActivity } from './mcp/activity.mjs';
 
@@ -98,12 +98,20 @@ async function loadMcpBridge() {
 // ---------------------------------------------------------------------------
 // Engine binaries.
 //
-// agent-desktop and agent-browser ship their native binary through a
-// postinstall script. pnpm (and therefore the plugin manager) refuses to run
-// dependency build scripts unless they are approved, so a market install can
-// leave both engines without a binary. Rather than fail with an opaque spawn
-// error much later, run the vendor's own postinstall once, ourselves, and
-// report what happened in the status route.
+// The two engines reach their native binary differently, and the difference
+// matters for a market install:
+//  - agent-desktop ships the natives inside its own bin/ and downloads any
+//    missing one in a postinstall script. pnpm (and therefore the plugin
+//    manager) refuses to run dependency build scripts unless they are approved,
+//    so the install can leave it without a binary.
+//  - agent-browser 0.43.0 ships bin/agent-browser.js only; the native arrives as
+//    an optional platform package (@agent-browser/cli-<platform>), which the
+//    installer places WITHOUT running any script. Its postinstall is a
+//    convenience, not the delivery path — so a bin/ scan reports "missing" for
+//    a perfectly healthy install. Ask the launcher's resolver instead, because
+//    that resolver asks the engine where its native lives.
+// Rather than fail with an opaque spawn error much later, repair what really is
+// missing and report which rung answered in the status route.
 // ---------------------------------------------------------------------------
 
 const ENGINE_PACKAGES = ['agent-desktop', 'agent-browser'];
@@ -130,10 +138,28 @@ function engineBinaryReady(root) {
   }
 }
 
+// Which rung answers for this package: the engine's own resolver (agent-browser,
+// any layout — flat node_modules, pnpm virtual store, platform package hoisted
+// or not), then the legacy bin/ scan (agent-desktop, or a <=0.42 agent-browser,
+// or a copy materialized into bin/ by a manual CLI run).
+async function engineBinaryFor(pkg) {
+  if (pkg === 'agent-browser') {
+    try {
+      const launcher = await import('./mcp/browser-launcher.mjs');
+      const found = await launcher.nativeBin();
+      if (found?.bin) return { binary: found.mode, path: found.bin };
+    } catch { /* resolver unavailable: fall back to the scan + vendor repair */ }
+  }
+  const root = engineRoot(pkg);
+  if (root && engineBinaryReady(root)) return { binary: 'package-bin' };
+  return null;
+}
+
 async function ensureEngine(pkg) {
   const root = engineRoot(pkg);
   if (!root) return { package: pkg, ok: false, reason: 'not-installed' };
-  if (engineBinaryReady(root)) return { package: pkg, ok: true, binary: 'present' };
+  const ready = await engineBinaryFor(pkg);
+  if (ready) return { package: pkg, ok: true, binary: ready.binary, path: ready.path };
   const script = join(root, 'scripts', 'postinstall.js');
   try {
     if (!statSync(script).isFile()) return { package: pkg, ok: false, reason: 'no-postinstall' };
@@ -145,7 +171,8 @@ async function ensureEngine(pkg) {
   } catch (error) {
     return { package: pkg, ok: false, reason: 'postinstall-failed', message: error?.message ?? String(error) };
   }
-  return { package: pkg, ok: engineBinaryReady(root), binary: 'downloaded' };
+  const after = await engineBinaryFor(pkg);
+  return { package: pkg, ok: after !== null, binary: 'downloaded', path: after?.path };
 }
 
 async function ensureEngines() {
@@ -162,7 +189,7 @@ export { ensureEngines as ensureEngineBinaries };
 async function mountMcpServers(ctx) {
   const { bridge, resolveErrors } = await loadMcpBridge();
   if (!bridge) {
-    mcpStatus = { mounted: false, servers: [], resolveErrors };
+    mcpStatus = { ...mcpStatus, mounted: false, servers: [], resolveErrors };
     ctx.logger.warn('dsh-arya-computer-use: could not resolve @deepseek-ai/dsh-mcp-client, no desktop or browser tools: %s', resolveErrors.join(' | '));
     return mcpStatus;
   }
@@ -177,14 +204,21 @@ async function mountMcpServers(ctx) {
         serverName: lane.serverName,
         command: process.execPath,
         args: lane.args,
-        toolCallTimeoutMs: 120000,
+        // The host ceiling must sit ABOVE every lane's own timeout, otherwise the
+        // host kills the call first and the adapter's timeout envelope — the one
+        // that says why, and what to do about it — never reaches the model. The
+        // desktop lane answers within engineCallTimeoutMs (max 300000) and the web
+        // lane within the engine's own call timeout, so 315000 is the floor.
+        toolCallTimeoutMs: 315000,
         failOnStartupError: false,
       });
     } catch (error) {
       resolveErrors.push(`${lane.serverName}: ${error?.message ?? String(error)}`);
     }
   }
-  mcpStatus = { mounted: true, servers: lanes.map(lane => lane.serverName), resolveErrors };
+  // Spread, never replace: apply() merges the per-engine readiness results into
+  // mcpStatus before this runs, and the Status panel renders those rows.
+  mcpStatus = { ...mcpStatus, mounted: true, servers: lanes.map(lane => lane.serverName), resolveErrors };
   return mcpStatus;
 }
 
@@ -201,7 +235,7 @@ export function controlDir() {
 
 const fields = {
   progressOverlayEnabled: z.boolean().default(true).description('Progress overlay'),
-  progressOverlayMode: z.const('source').default('source').description('Overlay content: source'),
+  progressOverlayMode: z.union([z.const('source'), z.const('summary')]).default('summary').description('Overlay content: summary condenses each step, source paints the assistant\u2019s raw text stream'),
   progressOverlayOpacity: z.number().min(20).max(100).default(60).description('Overlay opacity (%)'),
   progressOverlayWidth: z.number().min(240).max(1600).default(360).description('Overlay width'),
   progressOverlayHeight: z.number().min(160).max(1600).default(240).description('Overlay height'),
@@ -225,7 +259,7 @@ const fields = {
   overlayDefault: z.boolean().default(true).description('Start the cursor overlay with each desktop session'),
   driverLockEnabled: z.boolean().default(true).description('One conversation drives the desktop at a time'),
   toolPreset: z.union(['lite', 'lazy'].map(value => z.const(value))).default('lite').description('Tool surface size: lite lists all 28 tools; lazy starts with tools/snapshot/click and reveals the rest on demand'),
-  browserTools: z.union(['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'all'].map(value => z.const(value))).default('core').description('agent-browser tool profiles exposed on the MCP row'),
+  browserTools: z.union(['core', 'network', 'state', 'debug', 'tabs', 'react', 'mobile', 'webmcp', 'all'].map(value => z.const(value))).default('core').description('agent-browser tool profiles exposed on the MCP row'),
   browserToolFlags: z.union(['strip', 'lean', 'off'].map(value => z.const(value))).default('strip').description('Web lane schema size: strip drops the host/launch flags the plugin sets at launch from every tool, lean keeps session/restore/timeout, off keeps the agent-browser schemas unchanged'),
   browserProfile: z.string().default('').description('Chrome profile name or directory the web lane reuses for sign-ins'),
   browserSession: z.string().default('').description('Isolated browser session key'),
@@ -233,6 +267,21 @@ const fields = {
   browserCdp: z.string().default('').description('CDP endpoint of a browser to attach to instead of launching one'),
   browserExecutablePath: z.string().default('').description('Absolute path to a Chromium-family browser executable (Edge, Chrome, Brave) the web lane launches when it starts its own browser; empty lets agent-browser find system Chrome'),
   browserHeaded: z.boolean().default(false).description('Show the web lane browser window'),
+  // Host-wide agent-browser flags. These are applied to the daemon command line
+  // by mcp/browser-launcher.mjs, which is what makes the web lane's 'strip' mode
+  // honest: the tool schemas drop these keys because the plugin sets them once,
+  // host-wide. Empty / 0 = the engine's own default.
+  browserAllowedDomains: z.string().default('').description('Domain patterns the web lane may open, comma-separated (e.g. example.com,*.docs.example.com). Needs a fresh browser context: it cannot combine with a reused profile or session'),
+  browserIdleTimeout: z.string().default('').description('Shut the web lane daemon down after this much idle time (45s, 30m, 1h); 0 keeps it alive; empty = agent-browser default of 1h'),
+  browserNamespace: z.string().default('').description('Isolate this install\u2019s agent-browser daemon sockets and saved state from other installs'),
+  browserCaCert: z.string().default('').description('Absolute path to a PEM CA certificate the web lane trusts for HTTPS (self-signed internal sites)'),
+  browserUseSystemCa: z.boolean().default(false).description('Trust the operating system certificate store in the web lane'),
+  browserDefaultTimeoutMs: z.number().min(0).max(600000).default(0).description('Default per-call timeout for web lane tools in ms; 0 = agent-browser default of 120000'),
+  browserConfirmActions: z.string().default('').description('agent-browser policy actions that always need your approval, comma-separated (e.g. flow_write:deploy, plugin:vault:credential.read)'),
+  // Desktop-lane limits that were compiled in before 1.0.13.
+  engineCallTimeoutMs: z.number().min(10000).max(300000).default(150000).description('Hard wall-clock limit for one engine call in ms'),
+  leaseRetryBaseMs: z.number().min(0).max(10000).default(800).description('Wait before retrying a busy desktop lease (doubles per try); 0 answers contention immediately'),
+  screenshotDir: z.string().default('').description('Absolute directory for engine screenshots; empty keeps them in the plugin folder'),
 };
 export const SettingsConfig = z.object(fields);
 
@@ -397,7 +446,7 @@ export async function apply(ctx, config) {
     const timer = setInterval(() => {
       if (saveOverlayPatch && !layoutSaving) {
         try {
-          const layout = JSON.parse(readFileSync(runtime.layoutFile, 'utf8'));
+          const layout = readJsonFile(runtime.layoutFile);
           // A failed save is retried with backoff (0.5 s, doubling up to 60 s)
           // and a newer layout at once. A patch that cannot apply is dropped.
           if (layout.id !== layoutId && !(layout.id === layoutRetry.id && Date.now() < layoutRetry.at)) {
@@ -470,9 +519,39 @@ export async function apply(ctx, config) {
       res.writeHead(405, { Allow: 'GET, HEAD' });
       return res.end();
     }
-    const readJson = file => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
+    const readJson = file => { try { return readJsonFile(file); } catch { return null; } };
     const maskHome = text => String(text).split(os.homedir()).join('~');
     const activity = readJson(runtime.activityFile);
+    // Each lane is a separate MCP child process, so each publishes its own facts
+    // file at start-up: which native it resolved and by which rule, the flags and
+    // env it actually applied. The settings page's Status panel renders this —
+    // "what is running" must come from the process that started, not from what
+    // the settings say should run.
+    const laneFacts = name => {
+      const facts = readJson(join(root, name));
+      if (!facts) return null;
+      if (typeof facts.native === 'string') facts.native = maskHome(facts.native);
+      if (typeof facts.executablePath === 'string') facts.executablePath = maskHome(facts.executablePath);
+      return facts;
+    };
+    // Engine versions come from the installed manifests, not from what
+    // package.json asks for — the panel must show what is actually loaded.
+    const engineVersions = {};
+    for (const pkg of ENGINE_PACKAGES) {
+      const dir = engineRoot(pkg);
+      try {
+        engineVersions[pkg] = dir ? JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version : null;
+      } catch {
+        engineVersions[pkg] = null;
+      }
+    }
+    // Read-only elevation + lease-root probe. The lease file itself is never
+    // touched (AGENTS.md rule 1): only the root directory's existence.
+    const leaseRoot = process.env.ProgramData || 'C:\\ProgramData';
+    let lease = null;
+    try {
+      lease = { root: join(leaseRoot, 'agent-desktop'), present: existsSync(join(leaseRoot, 'agent-desktop')) };
+    } catch {}
     sendJson(res, 200, {
       plugin: '@aryacode/dsh-plugin-arya-computer-use',
       version: PLUGIN_VERSION,
@@ -481,6 +560,8 @@ export async function apply(ctx, config) {
       takeover: { running: !!takeover.child, paused: takeover.paused, seriesActive: takeover.seriesHeld, stoppedSeriesKey: takeover.stoppedSeriesKey },
       driver: activity?.active ? { sessionId: activity.sessionId, turn: activity.turn } : null,
       mcp: mcpStatus,
+      lanes: { browser: laneFacts('info-browser.json'), desktop: laneFacts('info-desktop.json') },
+      engines: { versions: engineVersions, elevated: typeof process.windowsElevated === 'boolean' ? process.windowsElevated : null, lease },
       state: readJson(runtime.stateFile),
     });
   }

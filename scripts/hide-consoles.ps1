@@ -34,8 +34,13 @@ $ErrorActionPreference = 'Stop'
 # Console window titles on Windows default to the application path, and the
 # vendor shim does not overwrite them. A few releases rename the helper, so the
 # match stays on the package name plus its bin directory.
+# agent-browser 0.43.0 moved the native out of its own bin/ into a platform
+# package (node_modules\@agent-browser\cli-<platform>\bin\agent-browser.exe, and
+# the same shape inside a pnpm virtual store), so the path match widened with it.
+# This watcher is a watchdog, not the fix: the launcher spawns that native
+# directly, which is why the window is not created at all (issue #2).
 $script:TitlePattern = 'agent-(browser|desktop)(-win32-(x64|arm64))?\.exe'
-$script:PathPattern = '\\node_modules\\(agent-browser|agent-desktop)\\bin\\'
+$script:PathPattern = '\\node_modules\\(@agent-browser\\[^\\]+|agent-(browser|desktop))\\bin\\'
 
 Add-Type -Namespace AryaCU -Name Win32 -MemberDefinition @'
     public delegate bool EnumWindowsProc(System.IntPtr hWnd, System.IntPtr lParam);

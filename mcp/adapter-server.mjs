@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { runQuietPointer, windowHandle } from './quiet-input.mjs';
+import { readJsonFile } from './settings.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -53,8 +54,16 @@ const ENGINE_STATE_ROOT =
   process.env.AGENT_DESKTOP_HOME || join(process.env.USERPROFILE || HERE, '.agent-desktop');
 const LOCAL_APPDATA = process.env.LOCALAPPDATA || join(process.env.USERPROFILE || HERE, 'AppData', 'Local');
 const PLUGIN_DIR = join(LOCAL_APPDATA, 'dsh-plugin-arya-desktop');
-const SHOTS_DIR = join(PLUGIN_DIR, 'screenshots');
-mkdirSync(SHOTS_DIR, { recursive: true });
+const DEFAULT_SHOTS_DIR = join(PLUGIN_DIR, 'screenshots');
+mkdirSync(DEFAULT_SHOTS_DIR, { recursive: true });
+// The screenshotDir setting (1.0.13) relocates the engine's PNG drops; the
+// default stays inside the plugin's own state folder, so a fresh install writes
+// nothing outside it. Resolved per call — the setting is polled, not mounted.
+function shotsDir() {
+  const dir = state.screenshotDir || DEFAULT_SHOTS_DIR;
+  try { mkdirSync(dir, { recursive: true }); } catch { /* the write itself will report it */ }
+  return dir;
+}
 
 // Behavior switches live in the host plugin's control file (settings.register
 // 'arya-computer-use' → index.js writes it here). The adapter polls it so
@@ -148,8 +157,14 @@ const state = {
   headedDefault: false,
   overlayDefault: true,
   windowId: null,
-  toolPreset: 'lite', // 'lite' = all 16 tools, 'lazy' = three to start, rest on demand
+  toolPreset: 'lite', // 'lite' = all 28 tools, 'lazy' = three to start, rest on demand
   extraTools: new Set(), // tools revealed by tools {operation:'load'} in the lazy preset
+  // Desktop-lane limits that were compiled-in constants before 1.0.13. Polled
+  // from the same control file as the behavior switches, so a change applies to
+  // the next call rather than needing a lane restart.
+  engineCallTimeoutMs: 150000,
+  leaseRetryBaseMs: 800,
+  screenshotDir: '',
 };
 
 // The lazy preset starts with the three tools needed to look, read, and act
@@ -180,9 +195,14 @@ const effectiveHeaded = () => {
 };
 const effectiveOverlay = () => state.overlayOverride ?? state.overlayDefault;
 
+// Facts are republished only when something the Status panel shows actually
+// changed, not on every poll tick.
+let factsDirty = true;
+let lastFacts = { engineCallTimeoutMs: state.engineCallTimeoutMs, leaseRetryBaseMs: state.leaseRetryBaseMs, screenshotDir: state.screenshotDir };
+
 setInterval(() => {
   try {
-    const settings = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8'));
+    const settings = readJsonFile(SETTINGS_FILE);
     // Strict: a settings file that omits the key must mean OFF. `!== false`
     // read a missing key as ON, which is a silent mouse/keyboard takeover.
     state.headedDefault = settings.headedDefault === true;
@@ -192,14 +212,30 @@ setInterval(() => {
       state.toolPreset = preset;
       state.extraTools.clear();
       notifyToolsChanged();
+      factsDirty = true;
     }
+    // Range-checked here rather than trusted: this file is editable by hand, and
+    // a nonsense timeout would either wedge the queue or kill every real call.
+    const callTimeout = Number(settings.engineCallTimeoutMs);
+    state.engineCallTimeoutMs = Number.isFinite(callTimeout) && callTimeout >= 10000 && callTimeout <= 300000
+      ? Math.round(callTimeout) : 150000;
+    const leaseBase = Number(settings.leaseRetryBaseMs);
+    state.leaseRetryBaseMs = Number.isFinite(leaseBase) && leaseBase >= 100 && leaseBase <= 10000
+      ? Math.round(leaseBase) : (leaseBase === 0 ? 0 : 800);
+    const shots = typeof settings.screenshotDir === 'string' ? settings.screenshotDir.trim() : '';
+    state.screenshotDir = /^(?:[A-Za-z]:[\\/]|\/)/.test(shots) ? shots : '';
+    if (callTimeout !== lastFacts.engineCallTimeoutMs || leaseBase !== lastFacts.leaseRetryBaseMs || shots !== lastFacts.screenshotDir) {
+      lastFacts = { engineCallTimeoutMs: callTimeout, leaseRetryBaseMs: leaseBase, screenshotDir: shots };
+      factsDirty = true;
+    }
+    if (factsDirty) { factsDirty = false; publishDesktopFacts(); }
   } catch {
     // Settings file not written yet (plugin not loaded): keep the defaults.
   }
   try {
     // Esc / stop lives in the host lane. A stopped series means the user pushed
     // back: release the headed latch so the next series starts headless.
-    const takeover = JSON.parse(readFileSync(TAKEOVER_STATE_FILE, 'utf8'));
+    const takeover = readJsonFile(TAKEOVER_STATE_FILE);
     if (takeover?.paused === true && state.headedOverride === true) {
       state.headedOverride = null;
       state.headedExpiresAt = 0;
@@ -223,9 +259,9 @@ const INPUT_TOOLS = new Set(['click', 'set_value', 'type', 'press', 'scroll', 'l
 
 function stoppedSeriesMessage() {
   try {
-    const activity = JSON.parse(readFileSync(ACTIVITY_FILE, 'utf8'));
+    const activity = readJsonFile(ACTIVITY_FILE);
     if (!(activity.active === true && Number.isFinite(activity.expiresAt) && activity.expiresAt > Date.now())) return null;
-    const saved = JSON.parse(readFileSync(TAKEOVER_STATE_FILE, 'utf8'));
+    const saved = readJsonFile(TAKEOVER_STATE_FILE);
     const key = JSON.stringify([activity.sessionId, activity.turn]);
     if (saved?.blockedSeries && Object.prototype.hasOwnProperty.call(saved.blockedSeries, key)) return saved.blockedSeries[key];
     return saved?.paused === true && saved?.stoppedSeriesKey === key ? (saved.pauseMessage || STOPPED_BY_USER) : null;
@@ -408,14 +444,21 @@ function leaseBusy(envelope) {
 // Contention is transient by nature: a launch holds the exclusive lease until
 // the window it started is observed. Retry a refused engine action a couple of
 // times before reporting it, so a busy lease never reads as a broken action.
-const LEASE_RETRY_DELAYS_MS = [800, 1600, 3200];
+// The ladder is settings-driven since 1.0.13 (leaseRetryBaseMs): base, base*2,
+// base*4. base 0 means answer contention immediately — some users want the busy
+// result at once instead of waiting through several seconds of backoff.
+function leaseRetryLadder() {
+  const base = state.leaseRetryBaseMs;
+  if (!base) return [];
+  return [base, base * 2, base * 4];
+}
 
 async function engineAction(argv, { headed = false, retries = 2 } = {}) {
+  const ladder = leaseRetryLadder();
   let envelope = parseEnvelope(await runCli(argv, { headed }));
-  for (let attempt = 0; attempt < retries; attempt += 1) {
+  for (let attempt = 0; attempt < Math.min(retries, ladder.length); attempt += 1) {
     if (envelope.ok === true || leaseBusy(envelope) === null) break;
-    const delay = LEASE_RETRY_DELAYS_MS[Math.min(attempt, LEASE_RETRY_DELAYS_MS.length - 1)];
-    await new Promise((resolve) => setTimeout(resolve, delay));
+    await new Promise((resolve) => setTimeout(resolve, ladder[attempt]));
     envelope = parseEnvelope(await runCli(argv, { headed }));
   }
   return envelope;
@@ -552,7 +595,12 @@ async function noteTarget(name, args, result) {
 // A hard ceiling exists because every engine call runs under this one queue: an
 // engine that stops answering (a stuck window probe, a lease it never gets)
 // would otherwise wedge every later tool call for the rest of the conversation.
-const CLI_HARD_TIMEOUT_MS = 150000;
+// Settings-driven since 1.0.13 (engineCallTimeoutMs, 10–300 s); the host's MCP
+// tool-call ceiling is mounted above it so this adapter timeout is the one that
+// answers and says why.
+function hardTimeoutMs() {
+  return state.engineCallTimeoutMs;
+}
 
 function hardTimeoutEnvelope(args) {
   return JSON.stringify({
@@ -561,7 +609,7 @@ function hardTimeoutEnvelope(args) {
     command: String(args[0] ?? ''),
     error: {
       code: 'TIMEOUT',
-      message: `The engine did not answer within ${Math.round(CLI_HARD_TIMEOUT_MS / 1000)} s and was stopped.`,
+      message: `The engine did not answer within ${Math.round(hardTimeoutMs() / 1000)} s and was stopped.`,
       suggestion: 'The desktop may be showing a modal dialog or the interaction lease may be held by another app; retry once, and report it if it repeats.',
       details: { kind: 'adapter_hard_timeout' },
       disposition: { delivery: 'not_delivered', retry: 'safe' },
@@ -594,7 +642,7 @@ function runCli(args, { headed = false } = {}) {
       try { child.kill(); } catch {}
       settled = true;
       resolve({ code: -2, stdout: hardTimeoutEnvelope(args), stderr });
-    }, CLI_HARD_TIMEOUT_MS);
+    }, hardTimeoutMs());
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', (error) => {
@@ -726,6 +774,42 @@ const TOOLS = [
 ];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
+
+/* ------------------------------------------------------- lane facts (B9) */
+
+// What this lane really started with, published for the settings page's Status
+// panel. The two lanes are separate MCP child processes, so each writes its own
+// facts file into the control dir and the host's status route merges them. The
+// point is the distinction between intent and fact: the settings say what should
+// run, this file says what did — which native binary was found and by which rule,
+// how many tools are actually exposed under the current preset, and the limits
+// in force. A stale or missing file is itself the diagnostic.
+const FACTS_FILE = join(PLUGIN_DIR, 'control', 'info-desktop.json');
+function publishDesktopFacts() {
+  try {
+    let engineVersion = null;
+    try { engineVersion = require('agent-desktop/package.json').version ?? null; } catch { /* engine unreadable */ }
+    writeFileSync(FACTS_FILE, JSON.stringify({
+      lane: 'desktop',
+      engine: 'agent-desktop',
+      engineVersion,
+      native: NATIVE_BIN,
+      // 'shim' means the npm shim is running the CLI, which is the console-window
+      // shape issue #2 was about — so it must never be silent here either.
+      nativeMode: NATIVE_BIN ? 'package-bin' : 'shim',
+      toolPreset: state.toolPreset,
+      toolsExposed: exposedTools().length,
+      toolsTotal: TOOLS.length,
+      engineCallTimeoutMs: state.engineCallTimeoutMs,
+      leaseRetryBaseMs: state.leaseRetryBaseMs,
+      screenshotDir: state.screenshotDir || DEFAULT_SHOTS_DIR,
+      sessionId: state.sessionId,
+      at: new Date().toISOString(),
+    }, null, 2));
+  } catch (error) {
+    process.stderr.write(`arya desktop lane: could not publish status facts: ${error.message}\n`);
+  }
+}
 
 /* -------------------------------------------------------------- dispatch */
 
@@ -952,7 +1036,7 @@ async function callTool(name, args = {}) {
     case 'screenshot':
       return enqueue(async () => {
         await ensureSession();
-        const file = join(SHOTS_DIR, `shot-${Date.now()}.png`);
+        const file = join(shotsDir(), `shot-${Date.now()}.png`);
         const envelope = parseEnvelope(await runCli(['screenshot', file, ...flagArgs([['--app', args.app], ['--window-id', args.window_id], ['--screen', args.screen]])]));
         return envelopeResult(envelope, envelope.ok ? ` File: ${file}` : '');
       });
@@ -1105,7 +1189,7 @@ function summarizeEnvelope(envelope) {
 }
 
 async function runOcr(args) {
-  const file = join(SHOTS_DIR, `ocr-${Date.now()}.png`);
+  const file = join(shotsDir(), `ocr-${Date.now()}.png`);
   const shot = parseEnvelope(await runCli(['screenshot', file, ...flagArgs([['--app', args.app], ['--window-id', args.window_id], ['--screen', args.screen]])]));
   if (shot.ok !== true) return envelopeResult(shot);
   const ps = await new Promise((resolve) => {
@@ -1179,6 +1263,8 @@ function replyError(id, code, message) {
 }
 
 const rl = createInterface({ input: process.stdin, terminal: false });
+// Publish what this lane started with before the first request can ask about it.
+publishDesktopFacts();
 rl.on('line', (line) => {
   let msg;
   try {

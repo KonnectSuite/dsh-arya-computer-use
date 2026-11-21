@@ -95,6 +95,11 @@ physical by nature (Windows SetFocus/foreground), so both require
 - **Web pages are not in the UIA tree.** Chrome/Electron page content needs
   the `arya_browser` lane (agent-browser MCP) — use `mcp__arya_browser__*`
   tools for anything inside a web page.
+- **Saved browser flows:** the web lane also exposes `flow_list`, `flow_save`,
+  `flow_run` and `flow_steps`. A flow is a named sequence the engine stores per
+  origin — running one is a single call instead of re-driving each step. Saving
+  and running are engine-side writes the engine may gate behind its own
+  confirmation (`flow_write:<id>`); never reach for `--allow-write`.
 - **Menus:** expand a menuitem (`click` on a `haspopup` item, or `expand`),
   then snapshot the menu surface. Win32/WPF/Chromium menus are detected;
   WinUI3/MSIX menus may not be — fall back to `ocr` plus a `physical: true` click.
