@@ -20,12 +20,12 @@ in the overlay by default, and the name is a setting.
   are never the targeting mechanism, and identical twins are refused, not mis-clicked.
 - **Nothing moves your mouse unless you say so.** `click` picks the delivery rung that works for
   that control — the control's own UIA pattern, its advertised action, then a background posted
-  click — and reports which one in `data.mechanism`. Real OS clicks, `type` and `focus` need an
-  explicit opt-in.
+  click — and reports which one in `data.mechanism`. `type` is quiet too (value pattern, then
+  posted characters). Real OS clicks and `focus` need an explicit opt-in.
 - **Takeover UI.** The driven window gets a rim and a banner, a synthetic ghost cursor marks each
   action, a step panel shows progress, and a global Esc stops the drive — the stop also gates the
   driver, so a pressed Esc is honoured, not raced.
-- **Two lanes.** `arya_desktop` (28 tools over UIA) and `arya_browser` (the agent-browser MCP
+- **Two lanes.** `arya_desktop` (30 tools over UIA) and `arya_browser` (the agent-browser MCP
   profile you pick), mounted in-process — no absolute paths, no `npx` child.
 - **Measured, not promised.** ~90 ms per engine call on the devbox (snapshot 90 ms, ref action
   85 ms, `list-windows` 56 ms); `batch` runs up to 20 steps in one call (6 steps: 332 ms engine
@@ -114,7 +114,7 @@ install behave identically.
 | One conversation drives at a time | on | Refuses desktop tools in other conversations while a drive is live |
 | Progress panel detail | `summary` | What the on-screen step panel prints: `summary` = short action lines, `source` = the assistant's raw text stream (the old default — it paints model text on your desktop) |
 | Stop shortcut | Esc | Global kill switch; synthetic keystrokes are ignored, so it needs a real keypress. It also gates the driver: desktop input tools return `COMPUTER_USE_STOPPED_BY_USER` for that turn (reads keep working) |
-| Tool preset | `lite` | `lite` lists all 28 desktop tools; `lazy` starts with tools/snapshot/click and reveals the rest on demand |
+| Tool preset | `lite` | `lite` lists all 30 desktop tools; `lazy` starts with tools/snapshot/find/list_surfaces/click and reveals the rest on demand |
 | Tool surface (web) | `core` | agent-browser tool profile: core 33, network 9, state 27, debug 40, tabs 13, react 8, mobile 15, webmcp 4, all 160 |
 | Chrome profile / Session | – / `arya` | Reuse a Chrome login state and name the browser session |
 | Connect to my browser | – | `--cdp` port or URL to attach to a Chrome you already have open |
@@ -133,13 +133,13 @@ install behave identically.
 
 ## Tool presets
 
-- `lite` (default) — all 28 desktop tools listed up front:
+- `lite` (default) — all 30 desktop tools listed up front:
   `snapshot, find, get, is, click, select, check, uncheck, clear, scroll_to, focus, focus_window,
   double_click, right_click, expand, collapse, toggle, set_value, type, press, scroll,
-  list_windows, launch, wait, screenshot, ocr, batch, tools`.
-- `lazy` — starts with `tools`, `snapshot`, `click`; everything else appears after
-  `tools {operation:"load", names:[...]}`. The adapter advertises `tools.listChanged` and emits
-  `notifications/tools/list_changed`, which DSH's MCP client re-syncs
+  list_windows, list_surfaces, restore_window, launch, wait, screenshot, ocr, batch, tools`.
+- `lazy` — starts with `tools`, `snapshot`, `find`, `list_surfaces`, `click`; everything else
+  appears after `tools {operation:"load", names:[...]}`. The adapter advertises `tools.listChanged`
+  and emits `notifications/tools/list_changed`, which DSH's MCP client re-syncs
   (`listChanged.onChanged → refreshTools`), so the new tools become callable immediately.
 
 ## Web lane
@@ -172,26 +172,55 @@ unique keys across its 33 tools), taking the web lane's schema payload from 24,5
 
 ## How clicks work
 
-`click` picks the delivery rung that works for that control and reports it in `data.mechanism`:
+`click` walks the ladder in this order and reports the rung that ran in `data.mechanism`:
 
 | mechanism | what happened | your pointer / foreground |
 | --- | --- | --- |
 | `semantic` | the control ran its own UIA pattern (Invoke or Legacy default action) | untouched |
 | `select` `toggle` `expand` `collapse` | click refused; the control's own advertised action did it | untouched |
 | `post_message` | a mouse message posted straight to the control's window | untouched |
-| `physical_synthetic` | a real OS click at the element centre — only when physical input is opted in | moves both |
+| `physical_synthetic` | a real OS click at the element centre — the **last** rung, only with `physical: true` (your consent) once the posted click is the rung that failed | moves both |
 
-A refusal caused by the exclusive desktop interaction lease (`TIMEOUT` /
-`details.kind: "lock_timeout"`) is not a verdict: the adapter retries the engine call twice with
-backoff before the ladder answers it.
+`press` gets the same treatment for keys: when the engine cannot confirm the window's focus, the
+adapter posts `WM_KEYDOWN`/`WM_KEYUP` to the control that window already has focused instead of
+refusing, and `expand`/`collapse`/`toggle` fall back to a posted click when the engine's pattern
+is unavailable — as does a `select` the engine refuses for want of a SelectionItem pattern, since
+the intent of `select` is to select. A refusal caused by the exclusive desktop interaction lease
+(`TIMEOUT` / `details.kind: "lock_timeout"`) is not a verdict: the adapter retries the engine call
+twice with backoff before the ladder answers it.
+
+The ladder also knows when to **stop**, because re-delivering is how a click goes wrong twice.
+When the engine reports the outcome as uncertain — its pattern call timed out *after* the handler
+may already have run, which is exactly what clicking a button that opens a modal answers
+(`error.disposition: {delivery: "delivery_uncertain", retry: "unsafe"}`) — nothing is re-delivered
+on the next rung, because a second delivery would open a second dialog; the answer tells you to
+read the state instead. And when the control answers that its own app has disabled it
+(`UIA_E_ELEMENTNOTENABLED`), posting a click into a dead control is measured to do nothing, so the
+lane stops there and names whatever appeared on top, rather than burning the remaining rungs.
+
+Dialogs and menus are **surfaces**, not part of the window tree. `list_surfaces` inventories what
+an app owns (`window` / `focused` / `sheet` for its modal dialog / `menu` for an open menu),
+`snapshot` and `find` read one with `surface: "sheet"` or `"menu"`, `wait` can catch the
+appearance (`event`, `menu`, `menu_closed`) instead of the agent polling screenshots, and a failed
+action names the window **or surface** that blocked it in `error.details.blocking_windows` — an
+entry with no title is usually an open menu or dropdown, which the window list does not always
+show but the surface inventory does. A read of a blocked window can also fail **silently**:
+`find` and `snapshot` answer `ok` with nothing in them. The lane then names the blocker in
+`data.blocking_windows` and says so in `data.observation_note`, so an empty read is not mistaken
+for a missing control. And once a window is known to be blocked, a repeat action on it answers in
+milliseconds with `details.kind: "owner_blocked"` instead of paying the engine's full wait budget
+again; that memo self-heals as soon as the blocker is gone.
 
 `set_value` fills a field through the accessibility value pattern (the headless text path).
-`select`/`check`/`uncheck`/`clear`/`scroll_to`/`toggle`/`expand`/`collapse` are semantic engine
-commands and stay headless. `type`, `focus`, `focus_window` and a `physical: true` click
-synthesise real input: each needs `physical: true` on the call (or the conversation-wide
-`tools {operation:"headed",on:true}` opt-in, 5 minutes) and otherwise refuses with
-`POLICY_DENIED` / `details.kind: "physical_input_requires_consent"`. `double_click` and
-`right_click` are posted in the background by default and physical only with consent. `tools`
+`type` is quiet as well: the adapter writes the value pattern on the ref, then posts the
+characters as `WM_CHAR` to the control hit-tested from that ref's own live rectangle, and
+confirms by reading the value back — synthesized keystrokes are only its last rung, behind
+consent. `select`/`check`/`uncheck`/`clear`/`scroll_to`/`toggle`/`expand`/`collapse` are
+semantic engine commands and stay headless. `focus`, `focus_window` and a `physical: true`
+click synthesise real input: each needs `physical: true` on the call (or the
+conversation-wide `tools {operation:"headed",on:true}` opt-in, 5 minutes) and otherwise
+refuses with `POLICY_DENIED` / `details.kind: "physical_input_requires_consent"`. `double_click`
+and `right_click` are posted in the background by default and physical only with consent. `tools`
 manages the opt-in, overlay and session state.
 
 ## Status
@@ -218,7 +247,7 @@ index.js              Host plugin entry (settings, driver lock, takeover mgmt, s
 client.js             Settings page + chat step rows (client plugin)
 index.json            The market listing this repo serves (jsDelivr); regenerated at release
 CHANGELOG.md          One entry per published version, newest first
-mcp/adapter-server.mjs  adapter MCP server (28-tool surface)
+mcp/adapter-server.mjs  adapter MCP server (30-tool surface)
 mcp/browser-launcher.mjs  web-lane stdio pipe applying the settings to agent-browser mcp
 mcp/quiet-input.mjs   driver for the background posted click (no cursor, no foreground)
 scripts/quiet-input.ps1  posted WM_* click helper; elevated, caches its compiled DLL
@@ -257,8 +286,8 @@ Uninstall from the Plugins panel (or `plugin_manager`). To clear every trace:
 | --- | --- |
 | `lease_directory_untrusted` | The host is not elevated. Restart AryaCode as administrator. |
 | A tool returns `TIMEOUT` / `lock_timeout` | Another conversation holds the drive (the lease is exclusive, and `launch` holds it for its whole run). The adapter retries twice with backoff; press Esc to release the drive, or turn on *One conversation drives at a time*. |
-| A canvas/game window shows no tree | It exposes no accessibility tree. Use `ocr` to read it and a `physical: true` click (your consent) to act on it. |
-| `physical_input_requires_consent` | By design: `type`/`focus`/`focus_window`/`physical: true` need the opt-in. Turn on *Real mouse and keyboard* (5 minutes) or pass `physical: true` on the call. |
+| A canvas/game window shows no tree | It exposes no accessibility tree, so there is nothing to target by ref. `ocr` can read its text; this lane deliberately has no coordinate-click tool, so a tree-less surface cannot be driven by input here — say so rather than invent a pixel path. |
+| `physical_input_requires_consent` | By design: `focus`/`focus_window`/`physical: true` need the opt-in, and `type` only once both quiet rungs have failed. Turn on *Real mouse and keyboard* (5 minutes) or pass `physical: true` on the call. |
 | Web-lane settings do not take effect | The web lane restarts with the MCP. Start a new session; the settings page says so. |
 | `desktop_status` shows accessibility not granted | Grant it in Windows settings, then restart the host. |
 

@@ -7,6 +7,9 @@
  * moves the real pointer and steals the desktop foreground. This helper posts
  * WM_MOUSEMOVE / WM_LBUTTONDOWN / WM_LBUTTONUP straight to the target control
  * window instead, so the click lands with the cursor where the user left it.
+ * The same path posts WM_KEYDOWN / WM_KEYUP when the engine refuses a key
+ * because it could not confirm the window's focus — a key does not need the
+ * foreground, it needs the window's own focused control to receive it.
  *
  * The target is resolved from the window handle the snapshot reported, never
  * from WindowFromPoint: a window behind another window must still receive the
@@ -30,12 +33,19 @@ export function windowHandle(windowId) {
 }
 
 /**
- * Post one background mouse action to a window handle.
- * mode: 'click' | 'right' | 'double'
+ * Post one background input action to a window handle.
+ * mode: 'click' | 'right' | 'double' (needs x/y in screen pixels)
+ *       'key' (needs vk: a Windows virtual-key code; it lands on the control
+ *       that owns the keyboard focus inside that window)
+ *       'text' (needs text: posted one WM_CHAR per character to that same
+ *       focused control, so a string arrives with its case and punctuation
+ *       intact and no keystroke is synthesized)
  * Returns the helper's report, or { ok: false, error } when it could not run.
+ * The report always carries cursor/foreground before+after and cursor_moved /
+ * foreground_changed, which is how the adapter proves nothing physical happened.
  */
-export function runQuietPointer({ mode, hwnd, x, y }, { timeoutMs = 15000 } = {}) {
-  const payload = Buffer.from(JSON.stringify({ mode, hwnd, x, y }), 'utf8').toString('base64');
+export function runQuietPointer({ mode, hwnd, x, y, vk, text }, { timeoutMs = 15000 } = {}) {
+  const payload = Buffer.from(JSON.stringify({ mode, hwnd, x, y, vk, text }), 'utf8').toString('base64');
   return new Promise((resolve) => {
     let settled = false;
     const finish = (result) => {

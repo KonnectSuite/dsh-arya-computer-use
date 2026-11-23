@@ -17,11 +17,11 @@ MCP——[`agent-desktop`](https://github.com/vercel-labs/agent-desktop)（Windo
 - **控件引用，不是像素。** `snapshot` 返回可寻址控件的语义树；坐标永远不是定位手段，外观相同的
   控件会被拒绝而不是误点。
 - **不动你的鼠标，除非你同意。** `click` 自动选择对该控件有效的投递层级——控件自身的 UIA 模式、
-  控件声明的动作、后台投递的鼠标消息——并在 `data.mechanism` 里报告用了哪一种；真实系统点击、
-  `type`、`focus` 需要显式开启。
+  控件声明的动作、后台投递的鼠标消息——并在 `data.mechanism` 里报告用了哪一种；`type` 同样是安静
+  投递（值模式，再后台投递字符）；真实系统点击和 `focus` 需要显式开启。
 - **接管界面。** 被操控的窗口有边框和横幅，每步动作有虚拟光标，步骤面板显示进度，全局 Esc 立即
   停止——停止会真正拦住驱动，按下的 Esc 会被执行，不会被抢跑。
-- **两条通道。** `arya_desktop`（28 个 UIA 工具）与 `arya_browser`（你选择的 agent-browser 工具
+- **两条通道。** `arya_desktop`（30 个 UIA 工具）与 `arya_browser`（你选择的 agent-browser 工具
   档位），全部进程内挂载——没有绝对路径，没有 `npx` 子进程。
 - **实测数字。** 开发机上每次引擎调用约 90 ms（snapshot 90 ms、控件操作 85 ms、`list-windows`
   56 ms）；`batch` 一次最多 20 步（6 步：引擎 332 ms，逐步约 510 ms）。每次 CLI 调用约 85 ms
@@ -98,7 +98,7 @@ MCP 通道同样进程内挂载，源码安装和仓库安装行为完全一致�
 | 同一时间只允许一个会话操控 | 开 | 驱动进行中时，拒绝其他会话的桌面工具 |
 | 步骤面板详细度 | `summary` | 屏幕步骤面板打印的内容：`summary` = 简短动作行，`source` = 助手原始文本流（旧默认——会把模型文本画在你的桌面上） |
 | 停止快捷键 | Esc | 全局急停；合成按键会被忽略，所以需要真实按键。它同时拦住驱动：本轮桌面输入工具返回 `COMPUTER_USE_STOPPED_BY_USER`（读取仍可用） |
-| 工具预设 | `lite` | `lite` 直接列出全部 28 个桌面工具；`lazy` 从 tools/snapshot/click 起步，其余按需出现 |
+| 工具预设 | `lite` | `lite` 直接列出全部 30 个桌面工具；`lazy` 从 tools/snapshot/find/list_surfaces/click 起步，其余按需出现 |
 | 工具档位（网页） | `core` | agent-browser 工具档位：core 33、network 9、state 27、debug 40、tabs 13、react 8、mobile 15、webmcp 4、all 160 |
 | Chrome 配置 / Session | – / `arya` | 复用 Chrome 登录状态并命名浏览器会话 |
 | 连接我的浏览器 | – | `--cdp` 端口或 URL，接入你已经打开的 Chrome |
@@ -117,11 +117,11 @@ MCP 通道同样进程内挂载，源码安装和仓库安装行为完全一致�
 
 ## 工具预设
 
-- `lite`（默认）——直接列出全部 28 个桌面工具：
+- `lite`（默认）——直接列出全部 30 个桌面工具：
   `snapshot, find, get, is, click, select, check, uncheck, clear, scroll_to, focus, focus_window,
   double_click, right_click, expand, collapse, toggle, set_value, type, press, scroll,
-  list_windows, launch, wait, screenshot, ocr, batch, tools`。
-- `lazy`——从 `tools`、`snapshot`、`click` 起步；其余在
+  list_windows, list_surfaces, restore_window, launch, wait, screenshot, ocr, batch, tools`。
+- `lazy`——从 `tools`、`snapshot`、`find`、`list_surfaces`、`click` 起步；其余在
   `tools {operation:"load", names:[...]}` 之后出现。适配层声明 `tools.listChanged` 并发出
   `notifications/tools/list_changed`，DSH 的 MCP 客户端会重新同步
   （`listChanged.onChanged → refreshTools`），新工具立即可调用。
@@ -152,21 +152,44 @@ node mcp/browser-launcher.mjs   # → agent-browser mcp --tools core [--profile 
 
 ## 点击是如何工作的
 
-`click` 选择对该控件有效的投递层级，并在 `data.mechanism` 里报告：
+`click` 按下面的顺序走投递阶梯，并在 `data.mechanism` 里报告实际执行的那一层：
 
 | mechanism | 发生了什么 | 你的指针 / 前台窗口 |
 | --- | --- | --- |
 | `semantic` | 控件运行了自己的 UIA 模式（Invoke 或 Legacy 默认动作） | 完全不动 |
 | `select` `toggle` `expand` `collapse` | 点击被拒；控件自己声明的动作完成了操作 | 完全不动 |
 | `post_message` | 鼠标消息直接投递给控件窗口 | 完全不动 |
-| `physical_synthetic` | 在控件中心发出真实系统点击——仅在物理输入已开启时 | 两者都会动 |
+| `physical_synthetic` | 在控件中心发出真实系统点击——**最后**一层，只有当后台投递那一层才是失败原因、且你以 `physical: true` 同意时才使用 | 两者都会动 |
 
-由独占桌面交互锁造成的拒绝（`TIMEOUT` / `details.kind: "lock_timeout"`）不是结论：适配层会先带
-退避重试两次引擎调用，然后才由阶梯给出答案。
+按键同理：引擎无法确认窗口焦点时，`press` 会把 `WM_KEYDOWN`/`WM_KEYUP` 投递给该窗口已经聚焦的控件，
+而不是直接拒绝；引擎的模式不可用时，`expand`/`collapse`/`toggle` 会退回到后台投递的点击——因缺少
+SelectionItem 模式而被拒的 `select` 也是如此，因为 `select` 的意图就是选中。由独占桌面交互锁造成的
+拒绝（`TIMEOUT` / `details.kind: "lock_timeout"`）不是结论：适配层会先带退避重试两次引擎调用，然后
+才由阶梯给出答案。
 
-`set_value` 通过辅助功能值模式填写输入框（无头文本路径）。`select`/`check`/`uncheck`/`clear`/
-`scroll_to`/`toggle`/`expand`/`collapse` 是语义引擎命令，保持无头。`type`、`focus`、
-`focus_window` 和 `physical: true` 的点击会合成真实输入：每次调用需要 `physical: true`（或会话级
+阶梯也知道什么时候该**停下**，因为重复投递正是“一次点击错两次”的来源。当引擎把结果报为不确定时——
+模式调用超时，但处理程序可能已经执行过（点击一个会打开模态对话框的按钮正是这种情况，答案里带
+`error.disposition: {delivery: "delivery_uncertain", retry: "unsafe"}`）——后续任何一层都不会再投递，
+因为第二次投递会打开第二个对话框；答案会要求你先读取状态。而当控件回答它自己的应用已经把它禁用
+（`UIA_E_ELEMENTNOTENABLED`）时，向一个失效的控件投递点击经实测毫无作用，于是通道就此停下，并指名
+压在它上面的东西，而不是把剩下的层级烧完。
+
+对话框与菜单是**独立面板（surface）**，不属于窗口树。`list_surfaces` 清点一个应用拥有的面板
+（`window` / `focused` / 模态对话框的 `sheet` / 打开菜单的 `menu`），`snapshot` 与 `find` 用
+`surface: "sheet"` 或 `"menu"` 读取它们，`wait` 能捕捉其出现（`event`、`menu`、`menu_closed`）
+而不必反复截图，失败的动作会在 `error.details.blocking_windows` 里指名挡住它的窗口**或面板**——
+没有标题的条目通常就是打开的菜单或下拉；窗口列表不一定显示它，面板清点会显示。被挡住的面板上的
+读取也可能**静默失败**：`find` 与 `snapshot` 回答 `ok` 却一无所获。此时通道会在
+`data.blocking_windows` 里指名挡住它的窗口，并在 `data.observation_note` 里说明原因，于是空结果
+不会被误当成"控件不存在"。而一个窗口一旦被确认被挡住，对它的重复动作会在几毫秒内以
+`details.kind: "owner_blocked"` 回答，而不是再付一遍引擎的完整等待预算；挡住它的东西一消失，
+这份备忘就自愈。
+
+`set_value` 通过辅助功能值模式填写输入框（无头文本路径）。`type` 同样是安静投递：适配器先在引用上
+写值模式，再把字符以 `WM_CHAR` 投递给由该引用自身实时矩形命中测试出的控件，并回读值确认——合成
+按键只是它的最后一级，且在同意之后。`select`/`check`/`uncheck`/`clear`/`scroll_to`/`toggle`/
+`expand`/`collapse` 是语义引擎命令，保持无头。`focus`、`focus_window` 和 `physical: true` 的点击
+会合成真实输入：每次调用需要 `physical: true`（或会话级
 `tools {operation:"headed",on:true}` 开启，5 分钟），否则以 `POLICY_DENIED` /
 `details.kind: "physical_input_requires_consent"` 拒绝。`double_click` 与 `right_click` 默认后台
 投递，只有获得同意才是物理的。`tools` 管理开启状态、覆盖层与会话状态。
@@ -195,7 +218,7 @@ index.js              Host 插件入口（设置、驱动锁、接管管理、�
 client.js             设置页 + 会话步骤行（客户端插件）
 index.json            本仓库对外提供的市场清单（jsDelivr）；每次发布重新生成
 CHANGELOG.md          每个发布版本一条记录，最新在前
-mcp/adapter-server.mjs  适配 MCP 服务器（28 工具面板）
+mcp/adapter-server.mjs  适配 MCP 服务器（30 工具面板）
 mcp/browser-launcher.mjs  网页通道 stdio 管道，把设置应用到 agent-browser mcp
 mcp/quiet-input.mjs   后台投递点击的驱动（不动光标、不动前台）
 scripts/quiet-input.ps1  投递 WM_* 点击助手；需提权，缓存编译出的 DLL
@@ -233,8 +256,8 @@ NOTICE.md             引擎署名（Apache-2.0）
 | --- | --- |
 | `lease_directory_untrusted` | 宿主未提权。以管理员身份重启 AryaCode。 |
 | 工具返回 `TIMEOUT` / `lock_timeout` | 另一个会话正持有驱动（锁是独占的，`launch` 会持有整个运行期）。适配层会带退避重试两次；按 Esc 释放驱动，或开启“同一时间只允许一个会话操控”。 |
-| 画布/游戏窗口读不到树 | 它不提供辅助功能树。用 `ocr` 读取内容，用 `physical: true` 点击（你的同意）操作它。 |
-| `physical_input_requires_consent` | 设计如此：`type`/`focus`/`focus_window`/`physical: true` 需要开启。打开“真实鼠标和键盘”（5 分钟），或在调用里传 `physical: true`。 |
+| 画布/游戏窗口读不到树 | 它不提供辅助功能树，因此没有可按 ref 定位的目标。`ocr` 可以读取它的文字；本通道刻意不提供坐标点击工具，所以无树的界面无法在此用输入驱动——如实说明，而不是另造像素路径。 |
+| `physical_input_requires_consent` | 设计如此：`focus`/`focus_window`/`physical: true` 需要开启；`type` 只在两级安静路径都失败后才需要。打开“真实鼠标和键盘”（5 分钟），或在调用里传 `physical: true`。 |
 | 网页通道设置不生效 | 网页通道随 MCP 重启生效。开一个新会话即可；设置页有说明。 |
 | `desktop_status` 显示辅助功能未授权 | 在 Windows 设置里授权，然后重启宿主。 |
 

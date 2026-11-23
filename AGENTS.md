@@ -70,9 +70,17 @@ is not listed ships nothing at all.
    engine semantic click → the control's own advertised action (`select`/`toggle`/
    `expand`/`collapse`) → a background `WM_*` posted click (`mcp/quiet-input.mjs`,
    no cursor movement, no foreground change) — and reports which rung it used in
-   `data.mechanism`. Do not add a rung that raises the window: the Windows foreground
-   lock means physical delivery only works on a window that is already foreground, so
-   raising it is precisely the defect this contract removes.
+   `data.mechanism`. Physical stays the **last** rung even when consent is present: a
+   consented call only skips to it once the posted rung is the one that failed (the
+   `postedRecently` repeat is that signal), because a real click is the one thing the
+   user asked us to stop doing by default. `press` posts `WM_KEYDOWN`/`WM_KEYUP` to the
+   control that window already has focused when the engine cannot confirm focus, and
+   `expand`/`collapse`/`toggle` fall back to a posted click — as does a `select` the engine refuses for want of a SelectionItem pattern, because the intent of `select` IS to select and the posted click is the quiet rung — never a blind `check`/
+   `uncheck` click, which would flip whatever state exists. Do not add a rung that
+   raises the window: the Windows foreground lock means physical delivery only works on
+   a window that is already foreground, so raising it is precisely the defect this
+   contract removes (that is why `type` promotes with `focus-window --headed`, never a
+   click at the element centre).
 8. **One engine action drives the desktop at a time.** The interaction lease is exclusive
    for the whole of `launch` (up to its `timeout_ms`, 30 s default) and a refused call
    comes back `TIMEOUT` / `details.kind: "lock_timeout"`. That is contention, not a
@@ -95,6 +103,27 @@ is not listed ships nothing at all.
     Vercel `agent-desktop`/`agent-browser` positioning. `wincu` history stays in
     `docs/PLAN.md` and `HANDOFF.md`; `NOTICE.md` and the source provenance headers are
     licence attribution and stay.
+11. **A dialog or menu is a surface, not part of the window tree.** A window snapshot of
+    an app with a modal up shows the blocked parent and nothing else, and every ref
+    action on that parent fails while the dialog owns the thread. The lane therefore
+    exposes `list_surfaces` and the `surface` parameter on `snapshot`/`find`
+    (`sheet` = the app's modal dialog, `menu` = the open menu), `wait` carries
+    `event`/`menu`/`menu_closed`, and a failed ref action names the window that appeared
+    in `error.details.blocking_windows`. Never let a refusal turn into screenshot or
+    `list_windows` polling — that polling loop (55 `screenshot` calls, 53 `list_windows`
+    calls in one audited session) is the symptom of a surface nobody read. A closed
+    surface answers `WINDOW_NOT_FOUND`, which is confirmation, not an error.
+12. **An observation is scoped to one app, and the queue is the only serializer.**
+    `observeScope()` defaults `snapshot`/`find` to the app of the window this
+    conversation last touched (an unscoped read costs ~2.4 s versus ~350 ms scoped, and
+    it matches other apps' windows — in the audited session it matched the agent's own
+    window and the model spent a series driving its own UI); the result carries
+    `data.scoped_to` so the model can see the scope it got. Every engine call for one
+    conversation also has to run inside `enqueue()` — the overlay's `list-windows` and
+    `get-bounds` calls used to be spawned from the JSON-RPC loop outside the queue, so
+    they lost the engine's exclusive interaction lease against the next queued action,
+    which is what produced the 21 s and 42 s click tails in the audited session.
+    `runCli` itself must never enqueue: nesting would deadlock the promise chain.
 
 ## Releasing
 

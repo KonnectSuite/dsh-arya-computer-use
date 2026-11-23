@@ -57,8 +57,8 @@ window.__ModuleLoader__.load({
         progressOpacity: '背景不透明度（%）', progressWidth: '宽度（像素）', progressHeight: '高度（像素）',
         progressPosition: '浮窗位置', progress_topRight: '右上', progress_topLeft: '左上', progress_bottomRight: '右下', progress_bottomLeft: '左下', progress_custom: '自定义',
         progressX: 'X 坐标', progressY: 'Y 坐标', progressShortcut: '浮窗解锁快捷键', progressShortcutHint: '按下后临时解锁浮窗以便拖动。留空表示不设置。',
-        toolSurfaceTitle: '工具范围', toolPreset: '工具预设', toolPresetHint: 'lite 直接列出全部 28 个工具；lazy 只暴露 tools / snapshot / click，其余按需加载。修改后需重启 MCP 生效。', toolPresetLite: 'lite · 全部 28 个', toolPresetLazy: 'lazy · 按需加载',
-        behaviorTitle: '操作方式', headedDefault: '真实鼠标和键盘', headedDefaultHint: '默认关闭：点击通过辅助功能接口或后台发送的消息完成，指针和前台窗口仍归你，文本走 set_value。开启后本对话内允许真实键盘鼠标输入（type、focus，以及没有其他路径的点击），会移动指针并短暂聚焦目标窗口。单次调用写 physical: true 是更窄的选择。',
+        toolSurfaceTitle: '工具范围', toolPreset: '工具预设', toolPresetHint: 'lite 直接列出全部 30 个工具；lazy 只暴露 tools / snapshot / find / list_surfaces / click，其余按需加载。修改后需重启 MCP 生效。', toolPresetLite: 'lite · 全部 30 个', toolPresetLazy: 'lazy · 按需加载',
+        behaviorTitle: '操作方式', headedDefault: '真实鼠标和键盘', headedDefaultHint: '默认关闭：点击通过辅助功能接口或后台发送的消息完成，文本走值模式或以 WM_CHAR 后台投递，指针和前台窗口仍归你。开启后本对话内允许真实键盘鼠标输入（focus、focus_window，以及安静层级未成功的点击或输入），会移动指针并短暂聚焦目标窗口。单次调用写 physical: true 是更窄的选择。',
         overlayDefault: '引擎会话叠加层', overlayDefaultHint: '启动桌面会话时启用引擎自带的光标叠加层。Arya 的虚拟光标不依赖它；除非你也想要引擎的标记，否则保持关闭。',
         driverLock: '单会话驱动', driverLockHint: '同一时间只允许一个对话操作桌面；其他对话调用桌面工具会收到 BUSY 提示。关闭后最近使用的对话自动接管。',
         engineCallTimeout: '单次调用上限（毫秒）', engineCallTimeoutHint: '一次引擎调用超过这个时间就返回超时信封。10000–300000；默认 150000。',
@@ -114,6 +114,7 @@ window.__ModuleLoader__.load({
         showDetails: '查看步骤和截图', seriesCount: '步操作', stepError: '操作失败', and: '，并',
         toggleControl: '切换了控件', expandControl: '展开了控件分组', scrollTo: '滚动到了目标', chooseOption: '选择了选项',
         focusTarget: '聚焦了目标', clearField: '清空了控件',
+        dialogSurfaces: '查看了对话框与菜单', restoreWin: '还原了最小化窗口',
         openPage: '打开了网页', readPage: '读取了网页', lookPage: '查看了网页', clickPage: '点击了网页元素', typePage: '在网页中输入',
         keyPage: '发送了按键', shotPage: '截取了网页', evalPage: '执行了页面脚本', tabsPage: '管理了标签页', closePage: '关闭了浏览器',
         waitPage: '等待网页响应', infoPage: '读取了页面信息', scrollPage: '滚动了网页', navPage: '导航到新地址', selectPage: '选择了选项',
@@ -144,8 +145,8 @@ window.__ModuleLoader__.load({
         progressOpacity: 'Background opacity (%)', progressWidth: 'Width (px)', progressHeight: 'Height (px)',
         progressPosition: 'Overlay position', progress_topRight: 'Top right', progress_topLeft: 'Top left', progress_bottomRight: 'Bottom right', progress_bottomLeft: 'Bottom left', progress_custom: 'Custom',
         progressX: 'X coordinate', progressY: 'Y coordinate', progressShortcut: 'Overlay unlock shortcut', progressShortcutHint: 'Press to temporarily unlock the overlay so you can drag it. Empty means none.',
-        toolSurfaceTitle: 'Tool surface', toolPreset: 'Tool preset', toolPresetHint: 'lite lists all 28 tools up front; lazy exposes tools / snapshot / click and loads the rest on demand. Changes apply after the next MCP restart.', toolPresetLite: 'lite · all 28', toolPresetLazy: 'lazy · load on demand',
-        behaviorTitle: 'Control style', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: clicks go through accessibility patterns or a background posted click, so the pointer and the foreground stay yours, and text goes through set_value. Turn on to allow real keyboard and mouse input for the rest of the conversation (type, focus, and a click that has no other way), which moves the pointer and briefly focuses the target window. physical: true on one call is the narrower choice.',
+        toolSurfaceTitle: 'Tool surface', toolPreset: 'Tool preset', toolPresetHint: 'lite lists all 30 tools up front; lazy exposes tools / snapshot / find / list_surfaces / click and loads the rest on demand. Changes apply after the next MCP restart.', toolPresetLite: 'lite · all 30', toolPresetLazy: 'lazy · load on demand',
+        behaviorTitle: 'Control style', headedDefault: 'Real mouse and keyboard', headedDefaultHint: 'Off by default: clicks go through accessibility patterns or a background posted click, and text goes through the value pattern or a posted WM_CHAR, so the pointer and the foreground stay yours. Turn on to allow real keyboard and mouse input for the rest of the conversation (focus, focus_window, and a click or type whose quiet rungs did not land), which moves the pointer and briefly focuses the target window. physical: true on one call is the narrower choice.',
         overlayDefault: 'Engine session overlay', overlayDefaultHint: "Starts the desktop session with the engine's own cursor overlay. Arya's ghost cursor does not depend on it; leave it off unless you want the engine marker too.",
         driverLock: 'One conversation drives at a time', driverLockHint: 'While one conversation is driving, desktop calls from other conversations receive a BUSY notice. Turn off to let the most recent conversation take over automatically.',
         engineCallTimeout: 'Per-call ceiling (ms)', engineCallTimeoutHint: 'An engine call longer than this returns a timeout envelope. 10000–300000; default 150000.',
@@ -201,6 +202,7 @@ window.__ModuleLoader__.load({
         showDetails: 'Steps and screenshots', seriesCount: 'steps', stepError: 'Action failed', and: ', then ',
         toggleControl: 'Toggled a control', expandControl: 'Expanded a control group', scrollTo: 'Scrolled to the target', chooseOption: 'Chose an option',
         focusTarget: 'Focused the target', clearField: 'Cleared a control',
+        dialogSurfaces: 'Looked for dialogs and menus', restoreWin: 'Restored a minimized window',
         openPage: 'Opened a page', readPage: 'Read the page', lookPage: 'Looked at the page', clickPage: 'Clicked in the page', typePage: 'Typed in the page',
         keyPage: 'Sent a key press', shotPage: 'Captured the page', evalPage: 'Evaluated on the page', tabsPage: 'Managed tabs', closePage: 'Closed the browser',
         waitPage: 'Waited for the page', infoPage: 'Read page information', scrollPage: 'Scrolled the page', navPage: 'Navigated', selectPage: 'Selected an option',
@@ -789,9 +791,9 @@ window.__ModuleLoader__.load({
     }
     // Chat rows, keyed by wire tool name per lane (AGENTS.md rule 9). The desktop
     // table used to cover 16 of the 28 exposed tools and the web table 29 names;
-    // both now cover every tool the lanes can expose (28 + 34 = 62 keys), so no
+    // both now cover every tool the lanes can expose (30 + 34 = 64 keys), so no
     // call falls back to the generic card.
-    const actionKeys = { snapshot: 'see', screenshot: 'see', list_windows: 'windows', find: 'findControl', get: 'read', is: 'read', click: 'clickAction', set_value: 'valueAction', type: 'typeAction', press: 'keyAction', scroll: 'scrollAction', wait: 'waitAction', ocr: 'ocrAction', launch: 'launchAction', batch: 'seriesTitle', tools: 'toolsAction', check: 'toggleControl', uncheck: 'toggleControl', toggle: 'toggleControl', expand: 'expandControl', collapse: 'expandControl', scroll_to: 'scrollTo', select: 'chooseOption', focus: 'focusTarget', focus_window: 'focusTarget', double_click: 'clickAction', right_click: 'clickAction', clear: 'clearField' };
+    const actionKeys = { snapshot: 'see', screenshot: 'see', list_windows: 'windows', find: 'findControl', get: 'read', is: 'read', click: 'clickAction', set_value: 'valueAction', type: 'typeAction', press: 'keyAction', scroll: 'scrollAction', wait: 'waitAction', ocr: 'ocrAction', launch: 'launchAction', batch: 'seriesTitle', tools: 'toolsAction', check: 'toggleControl', uncheck: 'toggleControl', toggle: 'toggleControl', expand: 'expandControl', collapse: 'expandControl', scroll_to: 'scrollTo', select: 'chooseOption', focus: 'focusTarget', focus_window: 'focusTarget', double_click: 'clickAction', right_click: 'clickAction', clear: 'clearField', list_surfaces: 'dialogSurfaces', restore_window: 'restoreWin' };
     const browserActionKeys = { open: 'openPage', read: 'readPage', snapshot: 'lookPage', click: 'clickPage', dblclick: 'clickPage', fill: 'typePage', type: 'typePage', press: 'keyPage', screenshot: 'shotPage', eval: 'evalPage', tab_new: 'tabsPage', tab_list: 'tabsPage', tab_switch: 'tabsPage', tab_close: 'tabsPage', close: 'closePage', wait_ms: 'waitPage', wait_for_selector: 'waitPage', wait_for_text: 'waitPage', wait_for_load: 'waitPage', get_text: 'readPage', get_url: 'infoPage', get_title: 'infoPage', scroll: 'scrollPage', back: 'navPage', forward: 'navPage', reload: 'navPage', select: 'selectPage', check: 'togglePage', uncheck: 'togglePage', flow_run: 'flowRun', flow_save: 'flowSave', flow_list: 'flowInspect', flow_steps: 'flowInspect', tools_profiles: 'toolsAction' };
     const isBrowserTool = (name) => /^mcp__arya_browser__/.test(name || '');
     const shortTool = (name) => String(name || '').replace(/^mcp__arya_desktop__/, '').replace(/^mcp__arya_browser__agent_browser_/, '');

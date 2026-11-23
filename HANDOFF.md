@@ -857,3 +857,106 @@ stays out of the repo.
   npmmirror sync queued (201, id 6b01dcafe02b3d0cb391d2e9). 1.0.13 stays on npm DEPRECATED —
   unpublish still needs the account owner (E403).
 
+## V11 2026-11-23 — QA completion and 1.0.15 (this session)
+
+Maintainer decision that opened V11: after reviewing the 8-hour V10-followup handoff, the
+maintainer chose "Finish & release 1.0.15" — fix the scratch rig, one clean confirmation run,
+the live drive, commit, and release. The engines stay pinned (agent-desktop 1.3.1,
+agent-browser 0.43.0); 1.0.15 is adapter + skill + copy only.
+
+Rig forensics (the part that ate the hours, now closed):
+- The bench death that poisoned runs 15–18 was the harness's own cleanup: `press right` +
+  `press enter` on the QA Guard close-veto. A posted arrow does NOT move a Win32 MessageBox
+  selection, so Enter fired the DEFAULT Yes → `close-confirmed` → the rig exited mid-run.
+  Bench-side forensics (FormClosing logs `FORMCLOSING reason=… guardChecked=…` /
+  `VETO-OPEN` / `VETO-ANSWERED <button>` into qa-bench-errors.log) named it in run 17.
+- Both "key recipes" for a non-default dialog button are MEASURED DEAD ENDS: posted arrow +
+  Enter (run 17 forensics) and the button mnemonic letter (run 18 on a MessageBox: `press n`
+  landed 406 ms, box survived; run 19 on a WinForms veto: 2264 ms, box survived). What DOES
+  answer a veto whose owner is mid-close is a posted Escape on the dialog's own window_id —
+  the bench veto form now sets `CancelButton = No`, so Escape answers the veto as No and the
+  rig survives (runs 20–21: `VETO-ANSWERED No`). A veto mid-close has NO readable tree by
+  window_id or surface sheet (its owner is blocked), which is why the ref path cannot be the
+  answer there; the CHANGELOG recipe sentence says exactly this now.
+- The "respawn gives no refs" mystery was two things: `find` on a just-respawned window
+  answers no-match until the tree is walked (respawnBench now seeds with a skeleton snapshot
+  and HARVESTS IncrementBtn/HitButton from `data.refs`), and the "respawning bench" pids in
+  the logs were SELF-MATCHES — the pwsh executor runs each command as
+  `powershell.exe -Command '<full command line>'`, so a scanner whose own command line
+  contains the literal scan pattern matches itself. kill-bench.ps1 assembles its pattern at
+  runtime and excludes `$PID`; hand-check commands must do the same.
+- Stale log tails actively misdiagnosed run 16 (bench-stderr.log / qa-bench-errors.log
+  printed entries from a dead bench revision). Both logs are now unlinked before every
+  bench spawn.
+
+Confirmation run (RUN 21, full battery, working-tree adapter): **205 records, 4 failures**,
+cursor audit 8292 samples — 22 jumps >250 px, 19 foreground changes, ZERO attributable to an
+unconsented call. The four failures, triaged:
+- `find:CtxItemA(surface menu)` — engine menu flake ("No menu this surface can root was
+  found"); the scenario's multi-path assert PASSED via the surface-window (w-3935488) and the
+  item click landed semantic. Known variance, run after run.
+- `assert:posted-click-moves-nothing` — one double_click envelope reported `cursor_moved:true`
+  because its before/after GetCursorPos bracket caught a 277 px jump at x −1532→−1273 on the
+  LEFT monitor (the bench window is on the primary at [120,120,836,599]), 193 ms before the
+  call's completion stamp. Posted `WM_*` messages never call SetCursorPos/mouse_event; every
+  other post_message envelope reported `cursor_moved:false`. The movement was the maintainer's
+  own hand inside the telemetry bracket; the conservative attribution rule claims it. Adapter
+  telemetry is honest; not a defect.
+- `assert:modal-opened-again` — bench variance (the second QA Modal open behaves differently
+  run to run: survived Escape in 18, TIMEOUT+none in 19, ok+none in 21). All adapter
+  contracts (no-redelivery, opened-exactly-once) PASSED.
+- `assert:no-unconsented-cursor-movement` — the one attributed jump is the same left-monitor
+  hand event as above; 0/19 foreground changes attributable.
+
+RUN 21 measurements (the honest numbers behind 1.0.15): semantic click 282–477 ms; posted
+double/right clicks land at the exact element centre (client(60,17), `dpi_aware:4`,
+`cursor_moved:false`); modal opener TIMEOUT 29572 ms with NO re-fire (`fallback_from:null`,
+dialog opened exactly once); blocked-parent repeat answers in 0 ms from the memo
+(`owner_blocked`, `memo_age_ms:2`) after the first attempt pays the engine budget (16401 ms);
+the #32770 Save dialog answers `refs=1 complete=false truncated=true` + the drive-blind hint,
+posted Escape closes it (`status=save-cancelled` observed via the bench label);
+`wait:text` resolves in 1446 ms vs 20 s sleeps; 3 snapshots 557 ms; 6 parallel clicks finish
+in a 2639 ms wall — the 21546/42185 ms lease tails are GONE; restore 205 ms → click 313 ms;
+`press escape` on the QA Cancel answers `key_target=dialog_root dialog_window_gone=true`;
+the stopped-series gate refuses input with POLICY_DENIED while reads stay alive; `focus`
+refusal names the headless path; scoped reads 154–333 ms vs 2424 ms desktop-wide; launch
+hands off at 30066 ms and the window is adopted by title poll, then driven by ref.
+
+Live drive (host-mounted lane against a real Store Notepad, all semantic, pointer untouched):
+MenuBar expand → flyout arrives as a PopupHost surface → `Save as` menuitem found in the
+popup window and clicked semantic in 524 ms (NO timeout — the battery's 27.6 s was the
+bench's own WinForms modal) → the `Save as` dialog is FULLY readable (refs=15 complete=true;
+Save/Cancel/Encoding refs) → File name set verified → Save clicked → the classic Confirm Save
+As prompt appeared and a posted Enter closed it. The final file-on-disk assert is blocked by
+Store Notepad's own confirmation loop/storage virtualization (app-side, not adapter-side);
+the battery covers the #32770 path. Side discovery: classic Notepad no longer exists on this
+machine — SysWOW64/System32 notepad.exe is the 24H2 baton stub (SHA 2D0B3948… identical to
+the WinSxS copy; it exits when run out of its servicing folder and the window lands on a
+foreign pid). The e2e therefore drives the Store Notepad through the launch handoff.
+
+Installed-bytes gate (rule 2 evidence): `pnpm add file:<1.0.15 tarball>` in the Dev AryaCode
+desktop profile → package.json reads 1.0.15 and the installed adapter hashes
+19082496E8739EA2… — identical to the working tree that the battery ran. `pnpm rebuild
+agent-desktop agent-browser` landed the natives (agent-desktop bin carries
+agent-desktop-win32-x64.exe 4,037,120 B; agent-browser resolves its
+@agent-browser/cli-win32-x64-msvc platform package). Raw-stdio probe against the installed
+bytes (13 checks): initialize ok; tools/list exposes 30 tools incl. list_surfaces +
+restore_window; launch handoff 34052 ms → window adopted by title poll; snapshot 21 refs
+complete=true; find Text Editor; set_value `installed-bytes-drive-42` verified by re-read;
+clear ok; the MSIX caption exposes no Close ref, so the scratch window is left open
+(battery precedent — the shared Store-Notepad host pid must never be killed). Browser lane against the
+installed launcher: initialize ok, tools/list ok, open example.com 923 ms, title
+`Example Domain`, eval UA `HeadlessChrome/158.0.0.0 Edg/158.0.0.0` — nativeBin() resolves the
+platform package through the pnpm-installed layout. Final rerun verdict: 13 checks, 12 pass —
+the only failure is the scratch-window cleanup (no Close ref in the MSIX caption), not a lane
+call. Dev AryaCode app pass: build gates 8/8 in 55.8 s; the status route answers version
+1.0.15, mcp.mounted true (arya_desktop + arya_browser, zero resolveErrors), engines ok
+(agent-desktop package-bin 1.3.1; agent-browser platform-package resolved to
+@agent-browser\cli-win32-x64-msvc\bin\agent-browser.exe), takeover.running true, desktop lane
+toolsExposed 30/30, lease root present.
+Esc gate: the battery's stopped-series gate PASSED (POLICY_DENIED blocks the next input,
+reads alive, clears on resume); the physical Esc itself is maintainer-side by design — the
+overlay hook ignores injected input (`scripts/windows-takeover.cs:477-478 "if (injected)
+return false;"`), so no automated test can press it. Press Esc once while Dev AryaCode drives
+a window and watch the series stop.
+
