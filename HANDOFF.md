@@ -1,3 +1,122 @@
+# Arya Computer Use — Handoff Notes (2026-11-27 desktop-lane review + delivery-honesty fix)
+
+Scope: full review of the desktop lane requested by the user ("desktop use is still not
+good … full review … verify everything e2e … right click, left click, double clicks,
+keyboard strokes, typing … hard to believe it's the pinned vercel repo"). Engine confirmed
+GENUINE pinned `agent-desktop@1.3.1` (node_modules/agent-desktop/bin/agent-desktop-win32-x64.exe,
+envelope 2.6; embedded `skills get desktop/platform` match vercel-labs/agent-desktop). The
+defect was NOT a swapped engine — it was the adapter's custom posted-WM_* ladder deviating
+from Vercel's delivery contract.
+
+## Root cause (what disrupted the Vercel design)
+Vercel's interaction reference: "The app is observed to judge delivery, not the accessibility
+return code" + fail-closed when no semantic path exists. The adapter instead:
+1. Judged posted delivery by `PostMessage`'s queue-accept return → reported `ok:true /
+   delivered_unverified / retry:unsafe` even when the app IGNORED the message (WinUI/XAML/
+   Electron swallow WM_*). This masked failure as success and trapped the model (may not
+   repeat an unsafe delivery, yet nothing happened).
+2. `press` had NO `--headed` physical rung and ignored per-call `physical:true` → modifier
+   chords to a background window always died (audited FactoryTalk session: STALE_REF "exact
+   focus could not be confirmed", hint "Retry with --headed", but the adapter never did).
+3. `type` returned `ok:true` even when the WM_CHAR value read-back was EMPTY.
+4. Action-name casing mismatch: the engine emits `available_actions` in PascalCase UIA names
+   ("SetValue","Select","Toggle","Expand","Collapse","ScrollTo") but every adapter gate compared
+   kebab lowercase ('set-value', …). On real apps the headless value-pattern typing rung and the
+   click semantic-alternative rung NEVER matched → typing silently fell through to WM_CHAR
+   (mangled "Typed E2E"→"Typed EEE" on Win11 Notepad) and pattern fallbacks were dead.
+5. `right_click`/`double_click` physical rung used `mouse-click --xy` at adapter-computed bounds;
+   WinUI textfields expose no live adapter-readable rectangle → `no_live_element_bounds` failure.
+
+## Fixes (mcp/adapter-server.mjs unless noted; all `node --check` OK)
+- normalizeAction() before indexNode (~:567); indexNode actions `.map(normalizeAction)`
+  (PascalCase→kebab; already-kebab passes through). Restores headless value-pattern typing +
+  semantic alternatives on real apps.
+- Posted delivery verification helpers (~:1051-1130): appOfWindow, menuSurfaceIds (matches surface
+  type OR title `/menu|popup|context/i` so WinUI "PopupHost" window counts), surfaceIds, newKeys,
+  markPostedVerified (→delivered_verified), postedNoEffect (ok:false ACTION_FAILED kind
+  posted_no_effect, not_delivered/retry:safe, names physical:true remedy).
+- enginePointer(name,args,headed) + physicalClick(name,args) (~:1092): physical rung now uses the
+  engine's OWN headed `right-click`/`double-click` (resolves clickable point internally → works on
+  WinUI with no adapter bounds), falls back to coordinate click; uncertain delivery stops the ladder.
+- press dispatch (~:2318): headless engineAction first → ok confirmKeyOnDialog / uncertain stop /
+  disabled stop → consent engineAction {headed:true} (physical_synthetic) → postedKey plain keys →
+  combo+no-consent honest hint naming physical:true. physical:true now honored.
+- type dispatch (~:2190): rung1 set-value (value_pattern); rung2 WM_CHAR + value read-back:
+  landed→delivered_verified; !landed→no-consent postedNoEffect / consent fall-through to headed type.
+- double_click/right_click dispatch (~:2090-2206): posted-first + effect verification (right: new
+  menu surface; double: new window/surface) → markPostedVerified; no-effect+consent→physicalClick;
+  no-consent→postedNoEffect; three physicalPointer call sites replaced with physicalClick + guards.
+- SURFACE_VALUES (~:1629): removed 'menubar' (engine refuses it on Windows INVALID_ARGS).
+- annotateRefusal (~:1145): AMBIGUOUS_TARGET/identity_not_unique hint → narrow the read
+  (root/find exact:true/longer timeout_ms), not a blind re-snapshot.
+- TOOLS descriptions (press gained physical:bool schema; double/right/type/click name the
+  observe-to-judge + same-call headed escalation) and INSTRUCTIONS updated to match.
+- skills/arya-desktop/SKILL.md: type/verify steps, click-ladder table, "Delivery honesty"
+  paragraph, double/right native-headed rung + PopupHost note, physical-last-rung rule.
+
+## Verification
+- MOCK-engine e2e harness `.tmp-e2e-harness/run-tests.mjs` (fake agent-desktop + mock
+  quiet-input.ps1, JSON-RPC drive of the edited adapter): **47 passed / 0 failed**. Covers
+  press headless-fail+consent→headed, combo+no-consent→honest refusal, plain Enter→post_message;
+  type value_pattern / WM_CHAR-landed verified / ignored+consent→headed / ignored+no-consent→
+  posted_no_effect; right_click posted+menu→verified, no-menu+consent→headed right-click,
+  no-menu+no-consent→posted_no_effect, NO-bounds+consent→native headed; double_click posted+window→
+  verified, nothing-observable→honest unverified, NO-bounds+consent→native headed; click regression.
+- LIVE e2e on REAL Win11 Notepad (elevated; pwsh now High IL under danger-full-access so the real
+  engine lease validates directly). `.tmp-e2e-harness/live-driver.mjs`→live-result.json and
+  live-driver2.mjs→live-result2.json: set_value→"Hello E2E 123" delivered_verified; clear verified;
+  type→value_pattern delivered_verified post_state.value="ABC 123 xyz" (ValuePattern.SetValue
+  semantic_api verified:true); press enter posted + ctrl+a consent headed ok; click File menuitem
+  semantic ok; **right_click consent→physical_synthetic AND opened "PopupHost" context-menu window**;
+  **double_click consent→physical_synthetic delivered** (no more no_live_element_bounds).
+- `.tmp-e2e-harness/probe-rightclick.mjs`→probe-rightclick.json (real engine, authoritative):
+  right-click HEADLESS semantic on WinUI textfield = POLICY_DENIED supported_action (no semantic
+  context-menu action) → posted-first correct; double-click --headed = ok physical_synthetic
+  SendInput.click; right-click --headed = ok physical_synthetic + PopupHost menu. Confirms the
+  native-headed redesign is the faithful Vercel delivery path.
+- Disposable target was a NEW "Untitled/ABC 123 xyz - Notepad" window (w-10618122). Win11 Notepad is
+  multi-window SINGLE process: it shares pid 12708 with the user's "DisplaysImport.txt" window
+  (w-8391006). Drivers scoped to the new window only; cleanup SKIPPED (shared pid) — user data never
+  touched. That disposable window is still open; do NOT kill pid 12708.
+
+## Secondary lanes reviewed — SOUND (no change needed)
+client.js rule-9 toolview keying intact (per-lane prefixes, no bare keys); mcp/browser-launcher.mjs
+nativeBin engine-anchored createRequire resolves @agent-browser/cli-win32-x64-msvc (rule 4);
+index.js host wiring clean (mountMcpServers, ensureEngines, toolCallTimeoutMs 315000). The defect
+was concentrated in the adapter posted-input ladder + press, not host/client/browser.
+
+## Release 1.0.16 — Gate 2 verified on Dev AryaCode (2026-11-27)
+Version bumped 1.0.15 → **1.0.16**; CHANGELOG.md entry added; `npm pack --ignore-scripts` →
+`.tmp-e2e-harness/aryacode-dsh-plugin-arya-computer-use-1.0.16.tgz` (187203 bytes, 23 files,
+**sha256 788f7998c0d730cae8f362f9c1074aa8861ba94774d8a80ae80be80633b6288a**).
+Dev build: C:\Users\KNPhu\AryaCode\KonnectSuite\AryaCode (start:desktop, --skip-build); dev home
+%LOCALAPPDATA%\AryaCode-dev\home (signed in). Installed via pnpm remove + add file:<tarball> into
+profiles\desktop (natives reused from store: agent-desktop-win32-x64.exe + @agent-browser/cli-win32-x64-msvc).
+Gate 2 evidence (all five):
+1. GET http://127.0.0.1:3081/dsh-market/installed → activation.state **live**, diagnostics.findings **[]**,
+   brokenPlugins {}. /plugins/arya/status → version 1.0.16, mcp.mounted true, desktop toolsExposed 30,
+   engineVersion 1.3.1, browser nativeMode platform-package.
+2. Surface rendered + screenshot: drove dev window to Plugins → Computer Use → settings page showing
+   **Arya Computer Use v1.0.16** (Desktop lane / Takeover / Progress overlay / Web lane / Status tabs;
+   tool preset "lite · all 30"). Screenshots shot-1795834792246 / -828495 / -858758.png.
+3. Feature e2e on the INSTALLED bytes (`.tmp-e2e-harness/live-driver3.mjs` → gate2-result.json):
+   desktop set_value "Release 1.0.16 OK" → delivered_verified (read-back matches); right_click(physical)
+   → physical_synthetic AND opened "PopupHost" context-menu window; press ctrl+a(physical) headed ok.
+   Browser lane agent_browser_open https://example.com → browserLaunched, get_title "Example Domain".
+   Esc-stop takeover code UNCHANGED this release (prior run-21 Esc-stop evidence stands).
+4. Dev stderr free of 'did not activate' / 'import failed' / 'duplicate factory' / 'failed to load'
+   (only the benign boot-time 'dsh-desktop:mandatory-status' IPC timing notice).
+5. Restart clean: stopped dev electron (checkout electron.exe only), relaunched same profile →
+   activation.state live, diagnostics.findings [], status version 1.0.16 / 30 tools again.
+Published via `node ../dsh-arya-market/scripts/release-plugin.mjs --dir ../dsh-arya-computer-use`
+(npm publish → index.json regen → v1.0.16 tag → GitHub release → catalogue reconcile + parity).
+The earlier hot-copy into the main profile is superseded by the published 1.0.16; the main AryaCode
+still needs a restart to load it (adapter is in-process). Optional: live drive of FactoryTalk View
+Studio (C:\Program Files (x86)\Common Files\Rockwell\VStudio.exe) to re-confirm the audited
+modifier-combo + tree-expand cases against the fixed adapter.
+
+---
+
 # Arya Computer Use — Handoff Notes (2026-11-07 ~01:10)
 
 Repo: C:\Users\KNPhu\AryaCode\KonnectSuite\dsh-arya-computer-use (git main, pushed; latest commit 16b940a).

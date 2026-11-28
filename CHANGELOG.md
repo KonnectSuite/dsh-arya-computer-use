@@ -3,6 +3,30 @@
 All published versions of [Arya Computer Use](https://github.com/KonnectSuite/dsh-arya-computer-use), newest first.
 Release notes for every version also live on the [Releases page](https://github.com/KonnectSuite/dsh-arya-computer-use/releases); dates are the npm publish times.
 
+## 1.0.16 — 2026-11-27
+
+**This release makes the desktop lane judge delivery the way the Vercel engine does — by observing the app, not by trusting a return code.** A full code review of the desktop lane, prompted by a real drive of FactoryTalk View Studio that did not behave as advertised, found that the background posted-input ladder was reporting success for messages the target app had silently ignored. The engine's own interaction reference is explicit: *"The app is observed to judge delivery, not the accessibility return code."* Every fix below restores that contract. The engines are unchanged: `agent-desktop` 1.3.1 and `agent-browser` 0.43.0 stay pinned; this is all adapter and skill.
+
+**A posted message is no longer a success.** A background `WM_*` post only proves the target thread's queue *accepted* it (`PostMessage` returned true); a XAML/WinUI/Electron surface, or a button that ignores posted keys, can swallow it with no effect. The old ladder returned `ok:true / delivered_unverified / retry:unsafe` for a bare queue-accept — masking failure as success and trapping the caller (it may not repeat an unsafe delivery, yet nothing happened). Each posted rung is now followed by an observation of the app and classified: **verified** (the effect was observed → `delivered_verified`), **no_effect** (the defining effect is provably absent → `not_delivered / retry:safe`, kind `posted_no_effect`, naming the remedy), or **unobservable** (no cheap probe exists → `delivered_unverified` with a re-read + consent remedy, never a blind physical escalation). A right-click is verified by a new context-menu surface (a WinUI menu is a `PopupHost` window, matched by title as well as type); a double-click by a new window/surface; typing by reading the value back.
+
+**`press` finally has a physical rung.** It was the one input tool with no `--headed` path: a modifier chord to a background window failed closed and a per-call `physical:true` was ignored. `press` now tries the headless engine first, then — only with consent — escalates to the engine's own `--headed` press, and falls back to a posted plain key. A chord with no consent answers honestly, naming `physical:true`.
+
+**`type` no longer reports success on an empty read-back.** When the posted `WM_CHAR` rung's value read-back does not show the characters, the result is `posted_no_effect` (no consent) or a same-call escalation to the engine's headed keystroke path (consent) — not `ok:true`.
+
+**Headless typing and the click ladder work on real apps again.** The engine advertises a control's actions as PascalCase UIA names (`SetValue`, `ScrollTo`, `Expand`, `Toggle`, `Select`), but the adapter's gates compared kebab command names (`set-value`, `expand`, …), so on a real app the headless value-pattern rung of `type` and the semantic alternatives of the click ladder never matched — typing silently fell through to `WM_CHAR` (which mangles on WinUI) and the pattern fallbacks never ran. Action names are now canonicalized to kebab-lowercase where they are indexed; already-kebab names pass through unchanged.
+
+**Right-click and double-click deliver on WinUI/XAML.** Their physical rung used a coordinate click at the adapter-computed element centre, which fails on elements that expose no live bounding rectangle (common in WinUI). The physical rung now prefers the engine's **own** headed `right-click`/`double-click` command, which resolves the clickable point internally and delivers where a coordinate click cannot; the coordinate click remains the fallback. An uncertain delivery still stops the ladder rather than blind-repeating.
+
+**Verified.** A mock-engine harness exercises every rung and disposition (47 checks, all passing), and a live battery drove a real Windows 11 Notepad through the pinned engine: headless `set_value`/`type` delivered and read back (`ValuePattern.SetValue`, `delivered_verified`), a consented right-click opened the `PopupHost` context menu, a consented double-click delivered, and plain/modifier keys escalated correctly. The skill (`skills/arya-desktop/SKILL.md`) and the tool/instruction copy now teach the recovery the old ladder hid: when a posted action shows no effect, re-read, then call again with `physical:true`.
+
+**Fixed.**
+- Posted click/key/text no longer masks an ignored message as `ok:true`; provable no-effect is `not_delivered / retry:safe` and escalates under consent.
+- `press` honors per-call `physical:true` and the headed latch; modifier chords to a background window escalate instead of failing closed.
+- `type` escalates (consent) or refuses honestly (no consent) when the `WM_CHAR` read-back is empty.
+- PascalCase→kebab action normalization restores headless value-pattern typing and the click ladder's semantic alternatives on real apps.
+- Right-click/double-click use the engine's native headed command, delivering on WinUI elements with no live bounds.
+- `find`/`snapshot` no longer offer the `menubar` surface (the Windows engine rejects it); an `AMBIGUOUS_TARGET/identity_not_unique` refusal now says to narrow the read rather than re-snapshot blindly.
+
 ## 1.0.15 — 2026-11-23
 
 **This is the release that answers the first long real drive.** A full working day audited against the 1.0.14 lanes produced three complaints — the mouse cursor got taken over, dialog popups were handled badly, clicks were slow and unreliable — and everything below is the fix set for them, verified against the full QA battery (202 checks, cursor-watch sampling throughout). The engines are unchanged: `agent-desktop` 1.3.1 and `agent-browser` 0.43.0 stay pinned; this is all adapter, skill, and copy.

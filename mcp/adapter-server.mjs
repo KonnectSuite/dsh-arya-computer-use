@@ -564,13 +564,25 @@ function annotateObservation(envelope, scope) {
 // click did.
 const refIndex = new Map(); // ref -> { role, name, actions: string[], windowId, actionsUnknown?, surfaceRead? }
 
+// The engine reports a control's advertised actions as UIA pattern names in
+// PascalCase ("SetValue", "ScrollTo", "Expand", "Toggle", "Select", "Click"),
+// while every gate in this adapter compares against the kebab command names
+// ("set-value", "scroll-to", "expand", ...). Without normalization the headless
+// value-pattern rung of `type` and the semantic alternatives of the click ladder
+// never match a real app's actions, so typing silently falls through to WM_CHAR
+// and the pattern fallbacks never run. Canonicalize to kebab-lowercase here, once,
+// where the actions are indexed; already-kebab names pass through unchanged.
+function normalizeAction(action) {
+  return String(action).trim().replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+}
+
 function indexNode(node, windowId, surfaceRead) {
   if (!node || typeof node !== 'object') return;
   if (node.ref_id) {
     refIndex.set(String(node.ref_id), {
       role: String(node.role ?? ''),
       name: typeof node.name === 'string' ? node.name : '',
-      actions: Array.isArray(node.available_actions) ? node.available_actions.map(String) : [],
+      actions: Array.isArray(node.available_actions) ? node.available_actions.map(normalizeAction) : [],
       windowId,
       ...(surfaceRead ? { surfaceRead: true } : {}),
     });
@@ -884,7 +896,7 @@ async function postedKey(combo, windowId) {
     ? (dismissed === true
       ? 'Background key: posted to the dialog window itself, because a standard dialog box translates Escape and Enter in its own message loop - its focused control is a button, and a button ignores a posted key. The dialog is gone from the window list, so the dismissal is confirmed.'
       : 'Background key: posted to the dialog window itself (a button child would have ignored it), and the window is still listed. Enter fires the default button; Escape only lands on a box that HAS a Cancel button - a YesNo/OK box ignores it exactly as it ignores a physical Escape (measured). If the box is still the answer, read its tree with surface "sheet" and timeout_ms 15000, then click the button ref that tree returns.')
-    : 'Background key: the key message was posted to the control that window already has focused, so no keystroke was synthesized, the pointer did not move and the foreground never changed. Verify by re-reading the app.';
+    : `Background key: the key message was posted to the control that window already has focused, so no keystroke was synthesized, the pointer did not move and the foreground never changed. A posted key only proves the queue took it. Re-read the app to confirm the effect${DIALOG_NAV_KEYS.has(key) && !DIALOG_DISMISS_KEYS.has(key) ? ' — a movement key does not close a dialog, so check that the selection/focus actually moved; if it did not, click the item ref directly instead of posting the key again (a second post moves the selection twice)' : ''}. If nothing changed, pass physical:true so the engine brings the window forward and synthesizes a real keystroke.`;
   return {
     envelope: {
       version: '2.6',
@@ -1029,10 +1041,107 @@ async function postedPointer(command, refId, mode) {
         disposition: { delivery: 'delivered_unverified', retry: 'unsafe' },
         pointer: { cursor_moved: report.cursor_moved === true, foreground_changed: report.foreground_changed === true },
         target: report.target ?? null,
-        note: 'Background click: posted to the control window, so the adapter never moved the pointer or raised the window. The app can still take focus itself while it handles the message, so read pointer.foreground_changed. Verify by re-reading the control; delivered_unverified means nothing saw the result yet.',
+        note: 'Background click: posted to the control window, so the adapter never moved the pointer or raised the window. A posted message only proves the queue took it, not that the app acted on it. Re-read the control to confirm the effect; if nothing changed, call again with physical:true so the adapter uses the real pointer (the app can also take focus itself while it handles the message — read pointer.foreground_changed).',
       },
     },
     report,
+  };
+}
+
+/* ---------------------------------------------- posted delivery verification */
+// Vercel agent-desktop's interaction reference is explicit: "The app is observed
+// to judge delivery, not the accessibility return code." A posted WM_* message
+// proves only that the target thread's queue ACCEPTED it (PostMessage returned
+// true). A XAML/WinUI/Electron surface, or a button that ignores posted keys, can
+// swallow it with no effect at all — so reporting ok:true / delivered_unverified /
+// retry:unsafe for a bare queue-accept masks failure as success and traps the
+// caller (it may not repeat an unsafe delivery, yet nothing happened). Every posted
+// rung is therefore followed by an observation of the app, classified:
+//   verified     — the effect was observed; delivered_verified, retry unsafe.
+//   no_effect    — the action's defining effect is provably absent; NOT a success.
+//                  Under consent it escalates to the engine's own --headed physical
+//                  path; without consent it is not_delivered, retry safe, naming the
+//                  remedy. This is the honest failure the old ladder hid.
+//   unobservable — no cheap probe exists (a generic click's effect is varied);
+//                  delivered_unverified with a re-read + consent remedy, never a
+//                  blind physical escalation.
+
+function appOfWindow(windowId) {
+  return windowBounds.get(String(windowId ?? ''))?.app ?? null;
+}
+
+// The defining effect of a right-click is a context menu. The engine lists a
+// WinForms dropdown as a 'menu' surface; a WinUI/XAML context menu instead appears
+// as a top-level "PopupHost" window whose surface type is plain 'window', so the
+// title is matched too. Snapshot the menu ids before and after the post; a new one
+// is the proof the right-click registered.
+async function menuSurfaceIds(app) {
+  const rows = await surfacesNow(app);
+  return new Set(rows.filter((s) => /menu|popup|context/i.test(`${s?.type ?? ''} ${s?.title ?? ''}`)).map((s) => String(s.id)));
+}
+
+async function surfaceIds(app) {
+  return new Set((await surfacesNow(app)).map((s) => String(s?.id ?? '')).filter(Boolean));
+}
+
+function newKeys(after, before) {
+  const added = [];
+  for (const k of after) if (!before.has(k)) added.push(k);
+  return added;
+}
+
+// The engine's OWN right-click / double-click commands resolve the element's
+// clickable point internally, so they deliver even when the adapter cannot read a
+// live bounding rectangle for the ref (WinUI/XAML elements frequently expose none,
+// which is exactly where a coordinate click at the element centre cannot run).
+// right-click has a semantic path only where the control advertises one (a WinUI
+// text field answers POLICY_DENIED headless); double-click is headed-only.
+async function enginePointer(name, args, headed) {
+  const command = name === 'right_click' ? 'right-click' : 'double-click';
+  return engineAction([command, args.ref_id, ...flagArgs([['--timeout-ms', actionBudgetMs(args, args.ref_id)]])], { headed, retries: 1 });
+}
+
+// The physical rung under consent: prefer the engine's native headed command (it
+// works without adapter-computed bounds and is the delivery Vercel's engine itself
+// implements), then fall back to a coordinate click at the element centre. An
+// uncertain delivery is returned as-is so the caller stops the ladder rather than
+// blind-repeating a mutation that may already have landed.
+async function physicalClick(name, args) {
+  const native = await enginePointer(name, args, true);
+  if (native.ok === true) {
+    return withMechanism(native, 'physical_synthetic', [], `Physical input on your request: the engine's headed ${name === 'right_click' ? 'right-click' : 'double-click'} moved the real pointer and the target window took the foreground.`);
+  }
+  if (deliveryUncertain(native)) return native;
+  return await physicalPointer(name, args.ref_id);
+}
+
+// Upgrade a posted envelope whose effect was observed to delivered_verified.
+function markPostedVerified(envelope, note) {
+  if (envelope?.ok !== true || !envelope.data) return envelope;
+  envelope.data.disposition = { delivery: 'delivered_verified', retry: 'unsafe' };
+  envelope.data.verified = true;
+  if (Array.isArray(envelope.data.steps)) for (const s of envelope.data.steps) s.verified = true;
+  if (note) envelope.data.note = note;
+  return envelope;
+}
+
+// A posted action whose defining effect is provably absent is not a success. This
+// is the honest failure the old ladder hid behind ok:true / retry:unsafe: nothing
+// landed, so it is safe to retry, and the remedy is the engine's headed physical
+// path (consent) or a different target. `what` names the action; `evidence` says
+// what was observed. The caller escalates to physical when consent is present.
+function postedNoEffect(command, what, evidence) {
+  return {
+    version: '2.6',
+    ok: false,
+    command,
+    error: {
+      code: 'ACTION_FAILED',
+      message: `The background posted ${what} was accepted by the window's message queue but the app shows no effect: ${evidence}. A posted WM_* message only proves the queue took it, not that the app acted on it (a XAML/WinUI/Electron surface or a button can ignore it).`,
+      suggestion: 'Nothing landed, so this is safe to retry. Pass physical:true on this call (or tools {operation:"headed",on:true}) to deliver it through the engine\'s headed physical path, which moves the real pointer/keyboard and takes the foreground; or re-read the window and act on a control that exposes a semantic action.',
+      details: { kind: 'posted_no_effect', physical: false, evidence },
+      disposition: { delivery: 'not_delivered', retry: 'safe' },
+    },
   };
 }
 
@@ -1078,9 +1187,11 @@ function annotateRefusal(envelope, attempted, postedReason, physicalFailure, rec
   if (postedReason) parts.push(`a background posted click could not run: ${postedReason}`);
   if (physicalFailure) parts.push(`the physical click refused: ${physicalFailure.code ?? 'failed'}`);
   if (!record) parts.push("the adapter had no snapshot record for this ref, so it could not retry through the control's own patterns");
+  const notUnique = envelope.error?.code === 'AMBIGUOUS_TARGET' || envelope.error?.details?.kind === 'identity_not_unique';
   envelope.hint = [
     'Nothing physical ran: the user’s mouse and foreground were not touched.',
     parts.length ? parts.join('; ') + '.' : '',
+    notUnique ? 'This ref was not proven unique in the whole window (identical twins share role+name): a fresh full snapshot may reproduce the same ambiguity. NARROW the read so the next ref is unique — root:<container ref> on the part you need, find with exact:true, or a longer timeout_ms — then act on that ref.' : '',
     'Next: take a fresh snapshot of this window (timeout_ms 10000-20000 for a busy app) and act on the new ref; or drive the control with select/check/uncheck/toggle/expand/scroll_to/set_value; or if a dialog or menu is open, read it — surfaces for this app, snapshot {surface:"menu"} for a menu, list_windows + the dialog window_id for a modal (a find by that window_id does not answer while the modal owns the thread — use surface "sheet").',
     physicalFailure ? '' : 'Physical input was not requested and would not fix this: it needs the window to be foreground already, and it moves the user’s pointer.',
   ].filter(Boolean).join(' ');
@@ -1555,8 +1666,8 @@ const int = { type: 'integer' };
 // The surfaces this Windows engine can actually read. A modal dialog is a
 // "sheet" and an open menu is a "menu": both are separate from the window tree,
 // which is why a window snapshot of an app with a dialog open looks frozen.
-const SURFACE_VALUES = ['window', 'focused', 'sheet', 'menu', 'menubar', 'start-menu', 'taskbar', 'system-tray', 'system-tray-overflow', 'action-center', 'notification-center'];
-const surface = { type: 'string', enum: SURFACE_VALUES, description: 'Read that surface instead of the window: sheet = the app modal dialog, menu = the open menu/menubar, plus the shell surfaces. An app-scoped read, never a window_id one.' };
+const SURFACE_VALUES = ['window', 'focused', 'sheet', 'menu', 'start-menu', 'taskbar', 'system-tray', 'system-tray-overflow', 'action-center', 'notification-center'];
+const surface = { type: 'string', enum: SURFACE_VALUES, description: 'Read that surface instead of the window: sheet = the app modal dialog, menu = an OPEN menu, plus the shell surfaces. An app-scoped read, never a window_id one. There is no "menubar" surface on Windows (the engine refuses it): a menu-bar command is part of the OWNER window tree — find it by name (role menuitem) and click that ref.' };
 const waitFor = { type: 'string', description: 'role:text locator to wait for in the same call (e.g. "button:OK"), instead of snapshot-poll-snapshot. --root cannot combine with it.' };
 const waitForGone = { type: 'string', description: 'role:text locator that must DISAPPEAR within the deadline — the headless way to confirm a dialog or busy overlay closed.' };
 const waitTimeout = { type: 'integer', description: 'Deadline for wait_for/wait_for_gone in ms (engine default 30000).' };
@@ -1578,10 +1689,10 @@ const TOOLS = [
     { app: str, window_id: str, name: str, role: str, text: str, value: str, native_id: str, description: str, first: bool, last: bool, nth: int, limit: int, count: bool, exact: bool, root: str, timeout_ms: int, surface, wait_for: waitFor, wait_for_gone: waitForGone, wait_timeout: waitTimeout }),
   tool('get', 'Read one control: property text|value|title|bounds|role|states.', { ref_id: str, property: str }),
   tool('is', 'Check one control: visible|enabled|checked|focused|expanded|selected.', { ref_id: str, property: str }),
-  tool('click', 'Press a control with no pixels: the engine tries InvokePattern, then LegacyIAccessible. When both are refused the adapter retries the ref\u2019s own patterns (select/toggle/expand/collapse) and then posts a background WM_* click to the control window, so the user\u2019s pointer and foreground are untouched. That ladder runs in order and a failure names the rung that failed: when the posted click is the rung that failed, the app ignores background input and only physical:true with the user\u2019s consent can drive it \u2014 the error says which. One exception stops the ladder outright: if the engine reports the outcome as UNCERTAIN (error.disposition.retry unsafe \u2014 the handler may already have run, the usual case being a button that opens a modal dialog) nothing is re-delivered, because repeating it would duplicate the effect; read the state instead. Verify by re-snapshot.', { ref_id: str, timeout_ms: int, physical: bool }),
+  tool('click', 'Press a control with no pixels: the engine tries InvokePattern, then LegacyIAccessible. When both are refused the adapter retries the ref\u2019s own patterns (select/toggle/expand/collapse) and then posts a background WM_* click to the control window, so the user\u2019s pointer and foreground are untouched. That ladder runs in order and a failure names the rung that failed: when the posted click is the rung that failed, the app ignores background input and only physical:true with the user\u2019s consent can drive it \u2014 the error says which. One exception stops the ladder outright: if the engine reports the outcome as UNCERTAIN (error.disposition.retry unsafe \u2014 the handler may already have run, the usual case being a button that opens a modal dialog) nothing is re-delivered, because repeating it would duplicate the effect; read the state instead. A posted click only proves the queue took it, not that the app acted: re-read the control, and if nothing changed call again with physical:true. Verify by re-snapshot.', { ref_id: str, timeout_ms: int, physical: bool }),
   tool('focus', 'Focus a control through UIA SetFocus. On Windows SetFocus takes the desktop foreground window, so it is physical by nature and runs only with physical:true. For text entry prefer set_value, which focuses the field itself; to press a control use click.', { ref_id: str, timeout_ms: int, physical: bool }),
-  tool('double_click', 'Double-click a control. Default is a background posted double-click (WM_LBUTTONDBLCLK) at the element centre: no pointer movement, no foreground change. Pass physical:true for a real mouse double-click. Verify by re-snapshot.', { ref_id: str, timeout_ms: int, physical: bool }),
-  tool('right_click', 'Open a control\u2019s context menu. Default is a background posted right-click at the element centre: no pointer movement, no foreground change. Pass physical:true for a real mouse right-click. The menu is a separate surface: after this, look for it with list_surfaces or snapshot/find surface "menu" — a window snapshot will not show it.', { ref_id: str, timeout_ms: int, physical: bool }),
+  tool('double_click', 'Double-click a control. Default is a background posted double-click (WM_LBUTTONDBLCLK) at the element centre: no pointer movement, no foreground change. The adapter then checks whether a new window or surface appeared: if so the result is delivered_verified; if nothing is observable, re-read the control to confirm the effect. With physical:true a posted click that produced no observable effect (or could not be posted at all) escalates in the SAME call to the engine\u2019s own headed double-click, which resolves the element\u2019s clickable point internally \u2014 so it delivers even on WinUI/XAML controls that expose no live bounding rectangle \u2014 and brings the window forward; without consent it reports not_delivered. Verify by re-snapshot.', { ref_id: str, timeout_ms: int, physical: bool }),
+  tool('right_click', 'Open a control\u2019s context menu. Default is a background posted right-click at the element centre: no pointer movement, no foreground change. The adapter then checks list_surfaces for a new menu: if one appeared the result is delivered_verified; if not, with physical:true it escalates in the SAME call to the engine\u2019s own headed right-click (which resolves the clickable point internally, so it works even on WinUI/XAML controls with no live bounding rectangle), and without consent it reports not_delivered. The menu is a separate surface: after this, look for it with list_surfaces or snapshot/find surface "menu" \u2014 a window snapshot will not show it (a WinUI context menu appears as a "PopupHost" window).', { ref_id: str, timeout_ms: int, physical: bool }),
   tool('expand', 'Expand an expander, tree item, or dropdown via ExpandCollapsePattern (no pixels).', { ref_id: str, timeout_ms: int }),
   tool('collapse', 'Collapse an expander or tree item via ExpandCollapsePattern (no pixels).', { ref_id: str, timeout_ms: int }),
   tool('toggle', 'Flip a checkbox or toggle button via TogglePattern. Prefer it over click: it reports the resulting state, and click on a checked control can be refused.', { ref_id: str, timeout_ms: int }),
@@ -1592,8 +1703,8 @@ const TOOLS = [
   tool('clear', 'Clear a control value to an empty string through UIA ValuePattern (no keystrokes, no pointer movement).', { ref_id: str, timeout_ms: int }),
   tool('scroll_to', 'Scroll an element into view through ScrollItemPattern (no pixels). Use it before acting on a row that is out of view.', { ref_id: str, timeout_ms: int }),
   tool('focus_window', 'Bring a window to the front. Takes the desktop foreground, so it runs only with physical:true. Usually unnecessary: a window behind another window stays readable and clickable in the background.', { window_id: str, app: str, title: str, physical: bool }),
-  tool('type', 'Type text into a text target. The adapter delivers it quietly first: the UIA value pattern on the ref (a value write - it REPLACES the value and fires no key events), then posted WM_CHAR characters to the control hit-tested from this ref\'s own live rectangle, confirmed by reading the value back. Keystroke synthesis is physical: it needs the window frontmost and moves the pointer, so it is the LAST rung and runs only with physical:true - consent unlocks it, it does not skip the quiet rungs. With consent the adapter raises the window with focus-window, it never clicks anything.', { ref_id: str, text: str, interval_ms: int, timeout_ms: int, physical: bool }),
-  tool('press', 'Send a key chord (e.g. ctrl+s) or one key (e.g. enter, escape, a, 7) to an app/window. The window id is inferred from the window this conversation last touched when several instances share one app name. If the engine cannot confirm the window\u2019s focus it refuses; the adapter then posts the key to that window in the background (WM_KEYDOWN/WM_KEYUP, no cursor, no foreground) and reports mechanism post_message — a bare letter posts unshifted, so a capital arrives lower-case. Foreground queue: for non-frontmost apps expect delivered_unverified, and verify by re-reading: a WinForms app does not run its managed key pipeline over a posted key, while a standard Win32 edit or dialog does.', { combo: str, app: str, window_id: str, force: bool }),
+  tool('type', 'Type text into a text target. The adapter delivers it quietly first: the UIA value pattern on the ref (a value write - it REPLACES the value and fires no key events), then posted WM_CHAR characters to the control hit-tested from this ref\'s own live rectangle, confirmed by reading the value back. If the read-back shows the posted characters did NOT land (a XAML/WinUI/Electron control ignores WM_CHAR), with physical:true it escalates to real keystrokes in the SAME call; without consent it reports not_delivered — use set_value or pass physical:true. Keystroke synthesis is physical: it needs the window frontmost and moves the pointer, so it is the LAST rung and runs only with physical:true - consent unlocks it, it does not skip the quiet rungs. With consent the adapter raises the window with focus-window, it never clicks anything.', { ref_id: str, text: str, interval_ms: int, timeout_ms: int, physical: bool }),
+  tool('press', 'Send a key chord (e.g. ctrl+s) or one key (e.g. enter, escape, a, 7) to an app/window. The window id is inferred from the window this conversation last touched when several instances share one app name. Headless first: the engine presses to the foreground queue, which fails closed for a non-frontmost app. With physical:true (or the conversation headed latch) the adapter then brings the window forward and synthesizes a real keystroke — the ONLY way a modifier chord reaches a background window. Without consent a plain key falls back to a background WM_KEYDOWN/WM_KEYUP post (mechanism post_message; a bare letter posts unshifted, so a capital arrives lower-case) and a modifier chord reports not_delivered. A posted key only proves the queue took it: re-read the app to confirm the effect; if nothing changed, pass physical:true. Never blind-repeat an unsafe delivery.', { combo: str, app: str, window_id: str, force: bool, physical: bool }),
   tool('scroll', 'Scroll a scrollable control: direction up|down|left|right, amount in lines.', { ref_id: str, direction: str, amount: int, timeout_ms: int }),
   tool('list_windows', 'List top-level windows (ids, titles, pids, responsiveness). A dialog that appeared since your last action shows up here: a modal dialog disables its owner window, so stop reading the parent — read the dialog itself with snapshot/find surface "sheet" and click a ref from that tree. The window_id is what press, restore_window and screenshot take; a find by that window_id does NOT answer while the modal owns the UI thread (measured: locator_transient_incomplete).', { app: str, timeout_ms: int }),
   tool('list_surfaces', 'Per-process surface inventory: which windows, focused windows, modal sheets and open menus each app has, with menu item counts. This is how you find a dialog or menu a window snapshot cannot show — then read it with snapshot/find using surface "sheet" or "menu". A surface that has already closed answers WINDOW_NOT_FOUND, which is confirmation, not a bug.', { app: str, timeout_ms: int }),
@@ -1994,31 +2105,77 @@ async function dispatchTool(name, args = {}) {
         const nature = name === 'right_click' ? 'A right-click' : 'A double-click';
         const mode = name === 'right_click' ? 'right' : 'double';
         const what = name === 'right_click' ? 'right-click' : 'double-click';
+        const refWindow = refRecord(args.ref_id)?.windowId ?? state.windowId;
+        const app = appOfWindow(refWindow);
+        // Baselines for the post-posting observation: a right-click's defining
+        // effect is a context-menu surface; a double-click often opens a window or
+        // surface. Capture before, compare after — Vercel's contract is to observe
+        // the app, not to trust the queue-accept return code.
+        const beforeMenus = name === 'right_click' && app ? await menuSurfaceIds(app) : null;
+        const beforeSurfaces = name === 'double_click' && app ? await surfaceIds(app) : null;
         // Windows has no headless double-click or right-click in the engine, so
-        // the posted background message is the delivery: the user's cursor and
+        // the posted background message is the first delivery: the user's cursor and
         // foreground stay exactly where they left them. A real click runs only
         // with consent, and only after the posted path is shown not to work —
         // or immediately, when this same ref was posted to moments ago and the
         // caller came back, which is how a model says "the app ignored it".
         if (physicalAllowed(args) && postedRecently(args.ref_id)) {
-          const physical = await physicalPointer(name, args.ref_id);
+          const physical = await physicalClick(name, args);
           if (physical?.ok === true) {
             physical.data.note = `Physical input on your request: this control had already been posted to without effect, so the real ${what} moved the pointer and took the foreground.`;
             return physical;
           }
+          if (deliveryUncertain(physical)) return attachDialogHint(stopForUncertain(physical, name), await dialogHint(known));
         }
         const posted = await postedPointer(name, args.ref_id, mode);
         if (posted.envelope) {
           postedClicks.set(String(args.ref_id), Date.now());
-          posted.envelope.data.note = `Background ${what}: WM_* messages went to the control under the element, so the pointer never moved and the window was never raised. The app can still take focus itself while it handles the message, so read data.pointer.foreground_changed. Verify the ${name === 'right_click' ? 'menu' : 'edit'} by re-reading.`;
+          if (name === 'right_click' && beforeMenus) {
+            const added = newKeys(await menuSurfaceIds(app), beforeMenus);
+            if (added.length) {
+              return markPostedVerified(posted.envelope, `Background right-click: WM_RBUTTON went to the control under the element and a context-menu surface appeared (${added.join(', ')}), so the right-click registered. The pointer never moved and the window was never raised. Read the menu with surface "menu" and act on its item refs.`);
+            }
+            // No menu appeared: the right-click's defining effect is absent. Under
+            // consent the engine's headed physical click is the reliable recovery;
+            // without it, an honest not_delivered the caller can act on.
+            if (physicalAllowed(args)) {
+              const physical = await physicalClick(name, args);
+              if (physical?.ok === true) {
+                physical.data.fallback_from = { code: 'posted_no_effect', message: 'the posted right-click opened no context-menu surface', kind: 'posted_no_effect' };
+                physical.data.note = 'Physical right-click on your request: the posted right-click opened no menu, so the engine\'s headed right-click delivered a real right-click and the window took the foreground. Read the menu surface (surface "menu") to confirm and act on its items.';
+                return physical;
+              }
+              if (deliveryUncertain(physical)) return attachDialogHint(stopForUncertain(physical, name), await dialogHint(known));
+            }
+            const noEffect = postedNoEffect(name, what, 'no context-menu surface appeared after the post');
+            noEffect.hint = 'A right-click that opens no menu did not achieve its purpose. Re-read the window (the control may have no context menu), or pass physical:true to deliver a real right-click. If a menu IS open, read it with surface "menu".';
+            return attachDialogHint(noEffect, await dialogHint(known));
+          }
+          if (name === 'double_click' && beforeSurfaces) {
+            // A new window or surface means something opened — the double-click
+            // registered. listWindowsNow remembers the new windows as it reads.
+            const afterWindows = await listWindowsNow(app);
+            const newWindows = afterWindows.filter((w) => w?.id && !known.has(String(w.id))).map((w) => `window ${w.id}`);
+            const newSurfaces = newKeys(await surfaceIds(app), beforeSurfaces).map((s) => `surface ${s}`);
+            const opened = [...newWindows, ...newSurfaces];
+            if (opened.length) {
+              return markPostedVerified(posted.envelope, `Background double-click: WM_LBUTTONDBLCLK went to the control under the element and something opened (${opened.join(', ')}), so the double-click registered. The pointer never moved. Read the new window/surface to continue.`);
+            }
+          }
+          // The effect is varied (edit mode, selection, launch) or the app is unknown,
+          // so it is not cheaply provable: report unverified honestly and name the
+          // recovery, never a blind physical escalation. A repeat call on this ref
+          // with consent (postedRecently) goes straight to the real pointer.
+          posted.envelope.data.note = `Background ${what}: WM_* messages went to the control under the element, so the pointer never moved and the window was never raised. The effect was not observed (a ${what} can enter edit mode or change selection without opening anything). Re-read the control to confirm; if nothing changed, call again with physical:true so the adapter uses the real pointer, or act on a control that exposes a semantic action.`;
           return posted.envelope;
         }
         if (physicalAllowed(args)) {
-          const physical = await physicalPointer(name, args.ref_id);
+          const physical = await physicalClick(name, args);
           if (physical?.ok === true) {
             physical.data.note = `Physical input on your request, after the posted ${what} could not be delivered: the real pointer moved and the target window took the foreground.`;
             return physical;
           }
+          if (deliveryUncertain(physical)) return attachDialogHint(stopForUncertain(physical, name), await dialogHint(known));
           // Consent is already in hand, so answering POLICY_DENIED here would be
           // false: what stopped the real click is a missing rectangle or the
           // engine's own refusal, not the policy (AGENTS rule 6). The old code also
@@ -2122,30 +2279,48 @@ async function dispatchTool(name, args = {}) {
             const back = await engineAction(['get', args.ref_id, '--property', 'value']);
             const observed = typeof back.data?.value === 'string' ? back.data.value : null;
             const landed = observed != null && (observed === text || observed.includes(text));
-            const envelope = {
-              version: '2.6',
-              ok: true,
-              command: 'type',
-              data: {
-                action: 'type',
-                mechanism: 'post_message',
-                chars_posted: report.chars_posted ?? text.length,
-                target_source: report.target_source ?? null,
-                verified: landed,
-                steps: [{ label: 'PostMessage.WM_CHAR', mechanism: 'background_synthetic', outcome: 'succeeded', verified: landed }],
-                disposition: { delivery: landed ? 'delivered_verified' : 'delivered_unverified', retry: 'unsafe' },
-                pointer: { cursor_moved: report.cursor_moved === true, foreground_changed: report.foreground_changed === true },
-                target: report.target ?? null,
-                note: landed
-                  ? 'Background typing: each character was posted as WM_CHAR to the control hit-tested from this ref, so no keystroke was synthesized, the pointer did not move and the foreground never changed. The value read-back confirms it landed.'
-                  : 'Characters were posted as WM_CHAR to the control hit-tested from this ref (see data.target), but the value read-back does not show them: that control may not process posted character messages - a XAML/WinUI surface has no Win32 edit behind it. Use set_value, or report that the text could not be entered. Repeating type may duplicate text.',
-              },
-            };
-            if (observed != null) envelope.data.value_observed = observed;
-            if (attempts.length) envelope.data.fallback_from = attempts;
-            return envelope;
+            if (landed) {
+              const envelope = {
+                version: '2.6',
+                ok: true,
+                command: 'type',
+                data: {
+                  action: 'type',
+                  mechanism: 'post_message',
+                  chars_posted: report.chars_posted ?? text.length,
+                  target_source: report.target_source ?? null,
+                  verified: true,
+                  steps: [{ label: 'PostMessage.WM_CHAR', mechanism: 'background_synthetic', outcome: 'succeeded', verified: true }],
+                  disposition: { delivery: 'delivered_verified', retry: 'unsafe' },
+                  pointer: { cursor_moved: report.cursor_moved === true, foreground_changed: report.foreground_changed === true },
+                  target: report.target ?? null,
+                  value_observed: observed,
+                  note: 'Background typing: each character was posted as WM_CHAR to the control hit-tested from this ref, so no keystroke was synthesized, the pointer did not move and the foreground never changed. The value read-back confirms it landed.',
+                },
+              };
+              if (attempts.length) envelope.data.fallback_from = attempts;
+              return envelope;
+            }
+            // The queue accepted the characters but the value read-back does not
+            // show them: the control ignores posted WM_CHAR (a XAML/WinUI/Electron
+            // surface has no Win32 edit behind it). This is a provable no-effect,
+            // NOT a success — the old ladder returned ok:true / retry:unsafe here
+            // and trapped the caller. Under consent, fall through to the engine's
+            // headed keystroke path; without it, report not_delivered honestly.
+            attempts.push('posted text: value read-back does not show the characters (control ignores WM_CHAR)');
+            if (!physicalAllowed(args)) {
+              const noEffect = postedNoEffect('type', 'typing', 'the value read-back does not show the posted characters');
+              noEffect.error.details.headless_attempts = attempts;
+              if (observed != null) noEffect.error.details.value_observed = observed;
+              const headless = (actions ?? []).filter((a) => a === 'set-value' || a === 'clear');
+              if (headless.length) noEffect.error.details.headless_available = headless;
+              noEffect.hint = 'The control did not take the posted characters. Use set_value (headless UIA write) if it exposes a value pattern, or pass physical:true to synthesize real keystrokes (the window is brought forward). Repeating type may duplicate text.';
+              return attachDialogHint(noEffect, await dialogHint(known));
+            }
+            // Consent present: fall through to the headed keystroke path below.
+          } else {
+            attempts.push(`posted text: ${report?.error ?? 'failed'}`);
           }
-          attempts.push(`posted text: ${report?.error ?? 'failed'}`);
         }
         if (!physicalAllowed(args)) {
           const refused = physicalRefusal('type', 'Keystroke synthesis');
@@ -2194,6 +2369,8 @@ async function dispatchTool(name, args = {}) {
           ['--window-id', args.window_id ?? windowIdForApp(args.app)],
           ['--force', args.force],
         ])];
+        // Headless first: the engine posts the key to the app's process without
+        // taking the foreground, which works when that window already has focus.
         const envelope = await engineAction(argv, { retries: 1 });
         if (envelope.ok === true) return await confirmKeyOnDialog(envelope, args);
         // The engine could not confirm the key's effect but says the outcome is
@@ -2203,17 +2380,39 @@ async function dispatchTool(name, args = {}) {
         // A window a popup has disabled cannot act on a key either, and a posted
         // key into it is measured dead weight: stop and name the surface instead.
         if (disabledTarget(envelope)) return await stopForDisabled(envelope, 'the key press', known);
-        // The engine refuses when it cannot prove the target window's focus, and
-        // on Windows it is right to: SendInput would land in whatever the user
-        // has in front. A posted key message needs no focus at all — the window's
-        // own dialog loop routes Enter/Escape/Tab to its default button.
+        // The engine refuses a key it cannot aim: a background window's focus is
+        // unproven, or a modifier chord needs the real keyboard state. Under consent
+        // the engine's OWN headed path is the reliable delivery — it brings the named
+        // window forward and synthesizes the keystroke, which works for chords and
+        // background windows alike. This is the rung the old adapter lacked entirely:
+        // per-call physical:true was ignored for press (only the conversation headed
+        // latch enabled --headed), so a Ctrl+A / Alt+letter to a background window
+        // always dead-ended at "this combo is not a plain key". Physical stays the
+        // LAST rung — the headless engine call above was tried first (AGENTS rule 7).
+        if (physicalAllowed(args)) {
+          const headed = await engineAction(argv, { headed: true, retries: 1 });
+          if (headed.ok === true) {
+            const confirmed = await confirmKeyOnDialog(headed, args);
+            return withMechanism(confirmed, 'physical_synthetic', [refusalSummary(envelope)].filter(Boolean), 'Physical input on your request: the headless engine could not aim the key, so the engine brought the target window forward and synthesized the keystroke. Real keyboard state was used, so modifier chords work.');
+          }
+          if (deliveryUncertain(headed)) return stopForUncertain(headed, 'key press');
+          if (disabledTarget(headed)) return await stopForDisabled(headed, 'the key press', known);
+          // The headed delivery refused too: fall through to the posted plain-key
+          // path and, failing that, an honest refusal naming what blocked it.
+        }
+        // Headless plain-key posting: a window's own dialog loop routes
+        // Enter/Escape/Tab to its default button with no synthesized keystroke.
         const posted = await postedKey(args.combo, args.window_id ?? state.windowId);
         if (posted.envelope) {
           posted.envelope.data.fallback_from = refusalSummary(envelope);
           return posted.envelope;
         }
-        envelope.hint = `The engine refused, and a background key could not run either (${posted.reason}). A key needs a focused control: pass window_id so the adapter can post to that window's focused control, or snapshot the dialog and click its buttons instead.`;
-        return envelope;
+        // A modifier chord cannot be posted (it needs real modifier state) and the
+        // headless engine refused: name the headed remedy instead of dead-ending.
+        envelope.hint = physicalAllowed(args)
+          ? `The engine refused the key and the headed delivery could not run either (${posted.reason}). Pass window_id so the adapter can target the window, or snapshot the dialog and click its buttons instead.`
+          : `The engine refused the key (${envelope.error?.code ?? 'failed'}), and ${posted.reason}. A modifier chord or a background window needs the engine's headed path: pass physical:true on this call (or tools {operation:"headed",on:true}) so the window is brought forward and the keystroke is synthesized. For a plain Enter/Escape/Tab on a dialog, pass window_id so it can be posted headlessly.`;
+        return attachDialogHint(envelope, await dialogHint(known));
       });
     case 'scroll':
       return enqueue(async () => {
@@ -2513,17 +2712,17 @@ const INSTRUCTIONS = [
   'A read of a blocked window can also fail SILENTLY: snapshot/find answer ok with nothing in them. The adapter then names the other window in data.blocking_windows and says so in data.observation_note - an empty read there is not a missing control, it is a blinded one, and the fix is to read the NAMED window. If nothing is named, the name or role you searched for is genuinely absent: report that, do not re-read at a bigger budget and do not poll with screenshots.',
   'Some dialogs expose no tree at all (a snapshot comes back with ref_count near 1 and complete:false, and find times out as locator_transient_incomplete) — a common file picker is one. Do not burn more budget re-reading it: drive it blind with set_value on its edit by ref where one exists, or press {combo:"escape"} / {combo:"enter"} on the dialog\'s own window_id. Measured: the key is posted to the dialog box itself, so enter fires its default button and closes it, and escape lands only on a box that HAS a Cancel button (a YesNo box ignores it, as it ignores a physical Escape). Where the dialog does answer a read, the surface "sheet" tree names its buttons and a click is exact.',
   'Nothing you do moves the user\'s pointer or takes their foreground unless you pass physical:true or arm tools {operation:"headed"}. Read and act while they keep working.',
-  'click never falls back to a physical click on its own: it tries the control\'s own patterns, then a posted background click (no cursor movement, no foreground change). The result names the mechanism in data.mechanism and pointer. A refusal says which rung failed: only when the posted click is the rung that failed does the app ignore background input, and physical:true then needs the user\'s explicit agreement on that one call.',
+  'click never falls back to a physical click on its own: it tries the control\'s own patterns, then a posted background click (no cursor movement, no foreground change). The result names the mechanism in data.mechanism and pointer. A posted click only proves the queue took it, not that the app acted: re-read the control, and if nothing changed call again with physical:true (the user\'s explicit agreement on that one call). A refusal names the rung that failed.',
   'Never pass physical:true to recover from a refused pattern, a STALE_REF, an AMBIGUOUS_TARGET or a timeout — those are not delivery problems, and physical input cannot fix them. Fix the ref, the scope, or the deadline.',
   'Prefer the exact semantic tool when the control advertises it: select (options/tabs/list items), check/uncheck (checkboxes, switches), toggle, expand/collapse, clear, scroll_to. These are idempotent and never touch the pointer. When expand/collapse/toggle is refused, the adapter posts a background click for you.',
-  'set_value is the headless text path (UIA value pattern, pointer stays put). type is delivered quietly too: the adapter first writes the value pattern on the ref, then posts the characters as WM_CHAR to the control hit-tested from the live rectangle of that ref and reads the value back, and only after both, with consent, synthesizes keystrokes. Never pass physical:true for text on the first try - the quiet rungs are tried for you and data.mechanism says which one landed.',
-  'double_click and right_click arrive as posted background messages by default; pass physical:true only when the app ignores posted input.',
-  'press sends to the app\'s process without focusing it; when the engine cannot confirm the window\'s focus the adapter posts the key (WM_KEYDOWN/WM_KEYUP) instead. Do not pass physical:true for a key.',
+  'set_value is the headless text path (UIA value pattern, pointer stays put). type is delivered quietly too: the adapter first writes the value pattern on the ref, then posts the characters as WM_CHAR to the control hit-tested from the live rectangle of that ref and reads the value back. If the read-back shows the characters did NOT land (a XAML/WinUI/Electron control ignores WM_CHAR), with consent it synthesizes keystrokes in the same call; without consent it reports not_delivered — use set_value or pass physical:true. Never pass physical:true for text on the first try - the quiet rungs are tried for you and data.mechanism says which one landed.',
+  'double_click and right_click arrive as posted background messages by default; the adapter then checks for the effect (a new menu surface for right_click, a new window/surface for double_click) and reports delivered_verified when it sees one. With physical:true a posted click with no observable effect escalates to a real click in the SAME call; without consent it reports not_delivered.',
+  'press tries the engine headless first (foreground queue, which fails closed for a non-frontmost app). With physical:true it brings the window forward and synthesizes a real keystroke — the ONLY way a modifier chord reaches a background window. Without consent a plain key posts in the background (WM_KEYDOWN/WM_KEYUP) and a modifier chord reports not_delivered. A posted key only proves the queue took it: re-read to confirm the effect; if nothing changed, pass physical:true.',
   'focus and focus_window are physical by nature (they change the desktop foreground), so they need physical:true. Do not raise a window to click it: refs work on background windows. A minimized window has no readable tree — restore_window first.',
   'Wait for a condition, never for a wall clock: wait {event:"window-opened"|"surface-appeared"} catches a dialog or menu without knowing its id, wait {text}/{menu}/{menu_closed} waits for tree state, and snapshot/find take wait_for/wait_for_gone in the same call. Measured: a text wait sees a value that JUST changed only after ~2s, so give it timeout_ms >= 4000 or confirm the change by reading the control (find with its name, get property value) — a text wait under 2s is a coin flip that usually fails. Polling screenshot or list_windows is the symptom of a surface you have not read.',
   'tools {operation:"headed",on:true} arms every physical path in this conversation for five minutes; per-call physical:true is the narrower choice. session_end clears it.',
   'Chromium windows settle slowly: snapshot with timeout_ms 10000-25000.',
-  'Verify stateful actions by re-read; delivered_verified = confirmed, delivered_unverified retry:unsafe = do not blind-repeat.',
+  'Verify stateful actions by re-read; delivered_verified = confirmed, delivered_unverified retry:unsafe = do not blind-repeat. A posted message (mechanism post_message) only proves the queue took it: judge delivery by observing the app, not the return code. not_delivered retry:safe with details.kind posted_no_effect means the posted input produced no observable effect — nothing happened, so you may retry or pass physical:true to escalate to real input.',
   'An engine failure with error.disposition.retry unsafe means the action may already have landed: the adapter then stops the click ladder instead of re-delivering, and neither should you — read the state (list_windows / list_surfaces / a fresh snapshot) and act on what the read shows.',
   'On ACTION_FAILED post_action_verification the action landed: read data.post_state, do NOT retry.',
   'This host must run elevated (Administrator); lease_directory_untrusted means restart AryaCode as Administrator.',

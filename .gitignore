@@ -6,3 +6,4 @@ dist/
 .state/
 .tmp/
 .tmp-qa/
+.tmp-*

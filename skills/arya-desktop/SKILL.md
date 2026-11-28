@@ -34,11 +34,13 @@ Screenshots are evidence, not input.
    accessibility value pattern, headless, and never touches the pointer.
    `type` is quiet too: the adapter first writes the value pattern on the ref,
    then posts the characters as `WM_CHAR` to the control hit-tested from that
-   ref's own live rectangle, and confirms by reading the value back. Only after
-   both — and only with `physical: true` — does it synthesize keystrokes, which
-   moves the pointer and focuses the window. Never pass `physical: true` for
-   text on the first try; `data.mechanism` says which rung landed
-   (`value_pattern` or `post_message`).
+   ref's own live rectangle, and confirms by reading the value back. If the
+   read-back shows the characters did **not** land (a XAML/WinUI/Electron
+   control ignores `WM_CHAR`), then with `physical: true` it synthesizes
+   keystrokes in the same call (moves the pointer, focuses the window); without
+   consent it reports `not_delivered` — use `set_value` or pass `physical: true`.
+   Never pass `physical: true` for text on the first try; `data.mechanism` says
+   which rung landed (`value_pattern` or `post_message`).
 3. **Verify** — re-`snapshot` (or `get`/`is` on the ref). The envelope tells
    you what happened:
    - `delivered_verified` — confirmed by readback.
@@ -49,6 +51,13 @@ Screenshots are evidence, not input.
       there instead of trying another pattern or posting another click, because
       either would fire the same handler twice (a duplicate dialog, a double
       increment). `list_windows` / `list_surfaces` first, then act on the read.
+   - `not_delivered` + `retry: safe` with `details.kind: posted_no_effect` — a
+     posted click/key/character produced **no observable effect**: nothing
+     happened. This is the honest failure the old ladder masked as
+     `delivered_unverified`. You may retry, or pass `physical: true` to escalate
+     to real input (the window is brought forward). `right_click` checks for a
+     new menu surface, `double_click` a new window/surface, `type` the value
+     read-back — when the adapter sees the effect it reports `delivered_verified`.
    - `ACTION_FAILED` with `details.kind: post_action_verification` — the action
      LANDED, the readback differs. Read `details.post_state`; do NOT retry.
    - `STALE_REF` / `AMBIGUOUS_TARGET` — re-snapshot; refs die when the window
@@ -124,7 +133,7 @@ it used in `data.mechanism`:
 | `semantic` | the control ran its own UIA pattern (Invoke or Legacy default action) | untouched |
 | `select` / `toggle` / `expand` / `collapse` | the click was refused, the control's own advertised action did the job | untouched |
 | `post_message` | a mouse message was posted straight to the control's window | untouched |
-| `physical_synthetic` | a real OS click at the element centre — only with `physical: true`, and only after the quiet rungs failed | moves both |
+| `physical_synthetic` | real OS input (the engine's headed command / SendInput) — only with `physical: true`, and only after the quiet rungs failed or had no observable effect | moves both |
 
 So a click on a background window normally lands without the user's cursor
 moving. When it lands by fallback and could not be verified, the result says
@@ -132,14 +141,32 @@ moving. When it lands by fallback and could not be verified, the result says
 refused) — **re-read the control to confirm** instead of clicking again.
 
 `expand`/`collapse`/`toggle` answer the same way: when the engine's pattern is
-refused the adapter posts a background click for that control. `press` sends to
-the app's process; when the engine cannot confirm the window's focus the
-adapter posts the key (`WM_KEYDOWN`/`WM_KEYUP`) to the control that window
-already has focused — mechanism `post_message`, no keystroke synthesized.
-`double_click` and `right_click` are posted in the background by default; with
-`physical: true` they are real OS clicks. `focus` and `focus_window` are
-physical by nature (Windows SetFocus/foreground), so both require
-`physical: true` and say so when they refuse.
+refused the adapter posts a background click for that control.
+
+`press` tries the engine headless first (the foreground queue, which fails
+closed for a non-frontmost app). With `physical: true` it brings the window
+forward and synthesizes a real keystroke — the **only** way a modifier chord
+(`ctrl+s`, `alt+f4`) reaches a background window. Without consent a plain key
+posts in the background (`WM_KEYDOWN`/`WM_KEYUP`, mechanism `post_message`, a
+bare letter arrives lower-case) and a modifier chord reports `not_delivered`.
+
+`double_click` and `right_click` are posted in the background by default; the
+adapter then checks for the effect — a new menu surface for `right_click`, a new
+window/surface for `double_click` — and reports `delivered_verified` when it sees
+one. With `physical: true` a posted click with no observable effect — or one that
+could not be posted because the control exposes no live bounding rectangle (common
+on WinUI/XAML) — escalates in the **same** call to the engine's own headed
+`right-click`/`double-click`, which resolves the clickable point internally and
+brings the window forward; without consent it reports `not_delivered`. A WinUI
+context menu appears as a `PopupHost` window, so read it with `list_surfaces`.
+`focus` and `focus_window` are physical by nature (Windows SetFocus/foreground),
+so both require `physical: true` and say so when they refuse.
+
+**Delivery honesty.** A posted message only proves the queue took it, not that
+the app acted. Judge delivery by observing the app, never by the return code:
+`delivered_verified` means an effect was observed, `delivered_unverified` means
+re-read before deciding, `not_delivered`/`retry: safe` means nothing happened and
+you may retry or escalate to `physical: true`.
 
 ## Rules that keep you safe
 
@@ -153,10 +180,11 @@ physical by nature (Windows SetFocus/foreground), so both require
   moves the pointer or takes the foreground unless you opt in: `physical: true`
   on one call, or `tools {operation:"headed",on:true}` for the whole
   conversation (5 minutes, cleared by `session_end`). Physical input is the
-  **last** rung, used when the posted click is the rung that failed — the error
-  names it. It is never the answer to a `STALE_REF`, an `AMBIGUOUS_TARGET`, a
-  refused pattern, a timeout or a text field: those are not delivery problems
-  and physical input cannot fix them. Warn the user before you opt in.
+  **last** rung, used when the posted input failed OR produced no observable
+  effect — re-read first, then opt in. It is never the answer to a `STALE_REF`,
+  an `AMBIGUOUS_TARGET`, a refused pattern, a timeout, or text on the first try:
+  those are not delivery problems and physical input cannot fix them. Warn the
+  user before you opt in.
 - **A busy interaction lease is not a failure of your click.** Only one engine
   action can drive the desktop at a time, and `launch` holds that lease until
   the new window settles (up to its `timeout_ms`, 30 s by default). Right after
